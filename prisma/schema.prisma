@@ -1,0 +1,592 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================================================
+// ENUMS
+// ======================================================
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  TRANSFERRED
+  CANCELLED
+  COMPLETED
+}
+
+enum EvaluationMode {
+  INDIVIDUAL
+  GROUP
+}
+
+enum EvaluationStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  CANCELLED
+}
+
+enum ResultStatus {
+  DRAFT
+  PUBLISHED
+  REVISED
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum FeedbackType {
+  GENERAL
+  POSITIVE
+  IMPROVEMENT
+  FINAL
+}
+
+enum NotificationType {
+  EVALUATION
+  GRADE
+  FEEDBACK
+  ANNOUNCEMENT
+  SYSTEM
+}
+
+// ======================================================
+// USUÁRIOS
+// ======================================================
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  active       Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teacher Teacher?
+  student Student?
+
+  createdEvaluations Evaluation[] @relation("EvaluationCreator")
+  createdRubrics     Rubric[]     @relation("RubricCreator")
+  createdProjects    Project[]    @relation("ProjectCreator")
+
+  feedbacks Feedback[] @relation("FeedbackAuthor")
+
+  notifications Notification[]
+
+  auditLogs AuditLog[] @relation("AuditActor")
+
+  gradeRevisions GradeRevision[] @relation("RevisionAuthor")
+
+  @@index([role])
+  @@index([active])
+  @@map("users")
+}
+
+// ======================================================
+// PROFESSORES
+// ======================================================
+
+model Teacher {
+  id           String  @id @default(uuid())
+  userId       String  @unique
+  employeeCode String? @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  assignments ClassSubject[]
+
+  @@map("teachers")
+}
+
+// ======================================================
+// ESTUDANTES
+// ======================================================
+
+model Student {
+  id                 String  @id @default(uuid())
+  userId             String  @unique
+  registrationNumber String? @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  enrollments      Enrollment[]
+  groupMemberships GroupMember[]
+
+  individualResults        EvaluationResult[]  @relation("StudentResults")
+  evaluationParticipations EvaluationStudent[]
+
+  @@map("students")
+}
+
+// ======================================================
+// ORGANIZAÇÃO ACADÊMICA
+// ======================================================
+
+model SchoolYear {
+  id     String       @id @default(uuid())
+  year   Int          @unique
+  name   String
+  status RecordStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+
+  terms       SchoolTerm[]
+  classes     SchoolClass[]
+  enrollments Enrollment[]
+
+  @@map("school_years")
+}
+
+model SchoolTerm {
+  id           String   @id @default(uuid())
+  name         String
+  number       Int
+  startDate    DateTime
+  endDate      DateTime
+  schoolYearId String
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+
+  evaluations Evaluation[]
+
+  @@unique([schoolYearId, number])
+  @@map("school_terms")
+}
+
+model SchoolClass {
+  id           String       @id @default(uuid())
+  name         String
+  code         String?
+  grade        String?
+  schoolYearId String
+  status       RecordStatus @default(ACTIVE)
+
+  schoolYear SchoolYear @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+
+  enrollments Enrollment[]
+  assignments ClassSubject[]
+  projects    Project[]
+  groups      StudentGroup[]
+  evaluations Evaluation[]
+
+  @@index([schoolYearId])
+  @@map("school_classes")
+}
+
+model Subject {
+  id          String       @id @default(uuid())
+  name        String
+  code        String?      @unique
+  description String?
+  status      RecordStatus @default(ACTIVE)
+
+  assignments ClassSubject[]
+  evaluations Evaluation[]
+  projects    Project[]
+
+  @@map("subjects")
+}
+
+model ClassSubject {
+  id        String @id @default(uuid())
+  classId   String
+  subjectId String
+  teacherId String
+
+  schoolClass SchoolClass @relation(fields: [classId], references: [id], onDelete: Restrict)
+  subject     Subject     @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  teacher     Teacher     @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  @@unique([classId, subjectId, teacherId])
+  @@index([teacherId])
+  @@map("class_subjects")
+}
+
+// ======================================================
+// MATRÍCULAS
+// ======================================================
+
+model Enrollment {
+  id           String           @id @default(uuid())
+  studentId    String
+  classId      String
+  schoolYearId String
+  status       EnrollmentStatus @default(ACTIVE)
+
+  enrolledAt DateTime @default(now())
+
+  student     Student     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  schoolClass SchoolClass @relation(fields: [classId], references: [id], onDelete: Restrict)
+  schoolYear  SchoolYear  @relation(fields: [schoolYearId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, schoolYearId])
+  @@index([classId])
+  @@map("enrollments")
+}
+
+// ======================================================
+// GRUPOS E PROJETOS
+// ======================================================
+
+model StudentGroup {
+  id          String  @id @default(uuid())
+  name        String
+  classId     String
+  description String?
+
+  schoolClass SchoolClass @relation(fields: [classId], references: [id], onDelete: Restrict)
+
+  members                  GroupMember[]
+  evaluationParticipations EvaluationGroup[]
+  results                  EvaluationResult[]
+
+  @@index([classId])
+  @@map("student_groups")
+}
+
+model GroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  studentId String
+  joinedAt  DateTime @default(now())
+
+  group   StudentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  student Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, studentId])
+  @@map("group_members")
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  classId     String
+  subjectId   String
+  createdById String
+  status      ProjectStatus @default(PLANNING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  schoolClass SchoolClass @relation(fields: [classId], references: [id], onDelete: Restrict)
+  subject     Subject     @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  creator     User        @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  presentations Presentation[]
+  evaluations   Evaluation[]
+
+  @@index([classId])
+  @@map("projects")
+}
+
+model Presentation {
+  id          String    @id @default(uuid())
+  projectId   String
+  title       String
+  description String?
+  scheduledAt DateTime?
+  presentedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("presentations")
+}
+
+// ======================================================
+// RUBRICAS E VERSIONAMENTO
+// ======================================================
+
+model Rubric {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  createdById String
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator User @relation("RubricCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  versions RubricVersion[]
+
+  @@index([createdById])
+  @@map("rubrics")
+}
+
+model RubricVersion {
+  id            String    @id @default(uuid())
+  rubricId      String
+  versionNumber Int
+  description   String?
+  totalPoints   Decimal   @default(10) @db.Decimal(8, 2)
+  publishedAt   DateTime?
+  immutable     Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  rubric Rubric @relation(fields: [rubricId], references: [id], onDelete: Restrict)
+
+  criteria    Criterion[]
+  evaluations Evaluation[]
+
+  @@unique([rubricId, versionNumber])
+  @@map("rubric_versions")
+}
+
+model Criterion {
+  id              String  @id @default(uuid())
+  rubricVersionId String
+  title           String
+  description     String?
+  weight          Decimal @default(1) @db.Decimal(8, 2)
+  maxPoints       Decimal @default(10) @db.Decimal(8, 2)
+  position        Int
+  required        Boolean @default(true)
+
+  rubricVersion RubricVersion @relation(fields: [rubricVersionId], references: [id], onDelete: Restrict)
+
+  scores CriterionScore[]
+
+  @@unique([rubricVersionId, position])
+  @@index([rubricVersionId])
+  @@map("criteria")
+}
+
+// ======================================================
+// AVALIAÇÕES
+// ======================================================
+
+model Evaluation {
+  id           String  @id @default(uuid())
+  title        String
+  description  String?
+  instructions String?
+
+  mode   EvaluationMode
+  status EvaluationStatus @default(DRAFT)
+
+  createdById     String
+  classId         String
+  subjectId       String
+  schoolTermId    String
+  projectId       String?
+  rubricVersionId String
+
+  startDate DateTime?
+  endDate   DateTime?
+
+  publishedAt DateTime?
+  closedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator User @relation("EvaluationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  schoolClass SchoolClass @relation(fields: [classId], references: [id], onDelete: Restrict)
+  subject     Subject     @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  schoolTerm  SchoolTerm  @relation(fields: [schoolTermId], references: [id], onDelete: Restrict)
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  rubricVersion RubricVersion @relation(fields: [rubricVersionId], references: [id], onDelete: Restrict)
+
+  students EvaluationStudent[]
+  groups   EvaluationGroup[]
+
+  results EvaluationResult[]
+
+  @@index([createdById])
+  @@index([classId])
+  @@index([subjectId])
+  @@index([status])
+  @@map("evaluations")
+}
+
+model EvaluationStudent {
+  id           String @id @default(uuid())
+  evaluationId String
+  studentId    String
+
+  evaluation Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@unique([evaluationId, studentId])
+  @@map("evaluation_students")
+}
+
+model EvaluationGroup {
+  id           String @id @default(uuid())
+  evaluationId String
+  groupId      String
+
+  evaluation Evaluation   @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  group      StudentGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([evaluationId, groupId])
+  @@map("evaluation_groups")
+}
+
+// ======================================================
+// RESULTADOS E NOTAS
+// ======================================================
+
+model EvaluationResult {
+  id           String @id @default(uuid())
+  evaluationId String
+
+  studentId String?
+  groupId   String?
+
+  score    Decimal?     @db.Decimal(8, 2)
+  maxScore Decimal      @default(10) @db.Decimal(8, 2)
+  status   ResultStatus @default(DRAFT)
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  evaluation Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Restrict)
+
+  student Student?      @relation("StudentResults", fields: [studentId], references: [id], onDelete: Restrict)
+  group   StudentGroup? @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  criterionScores CriterionScore[]
+  feedbacks       Feedback[]
+  revisions       GradeRevision[]
+
+  @@index([evaluationId])
+  @@index([studentId])
+  @@index([groupId])
+  @@map("evaluation_results")
+}
+
+model CriterionScore {
+  id          String @id @default(uuid())
+  resultId    String
+  criterionId String
+
+  score   Decimal @db.Decimal(8, 2)
+  comment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  result    EvaluationResult @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  criterion Criterion        @relation(fields: [criterionId], references: [id], onDelete: Restrict)
+
+  @@unique([resultId, criterionId])
+  @@map("criterion_scores")
+}
+
+// ======================================================
+// REVISÕES DE NOTAS
+// ======================================================
+
+model GradeRevision {
+  id       String @id @default(uuid())
+  resultId String
+  authorId String
+
+  previousScore Decimal? @db.Decimal(8, 2)
+  newScore      Decimal? @db.Decimal(8, 2)
+  justification String
+
+  createdAt DateTime @default(now())
+
+  result EvaluationResult @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  author User             @relation("RevisionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([resultId])
+  @@map("grade_revisions")
+}
+
+// ======================================================
+// FEEDBACKS
+// ======================================================
+
+model Feedback {
+  id       String @id @default(uuid())
+  resultId String
+  authorId String
+
+  type    FeedbackType @default(GENERAL)
+  content String
+
+  createdAt DateTime @default(now())
+
+  result EvaluationResult @relation(fields: [resultId], references: [id], onDelete: Restrict)
+  author User             @relation("FeedbackAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([resultId])
+  @@map("feedbacks")
+}
+
+// ======================================================
+// NOTIFICAÇÕES
+// ======================================================
+
+model Notification {
+  id     String @id @default(uuid())
+  userId String
+
+  title   String
+  message String
+  type    NotificationType @default(SYSTEM)
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+// ======================================================
+// AUDITORIA
+// ======================================================
+
+model AuditLog {
+  id          String  @id @default(uuid())
+  actorUserId String?
+
+  action   String
+  entity   String
+  entityId String?
+  details  Json?
+
+  createdAt DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
