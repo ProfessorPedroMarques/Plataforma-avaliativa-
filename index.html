@@ -1,0 +1,122 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <meta
+        name="description"
+        content="Plataforma de Avaliação Educacional"
+    >
+
+    <title>Plataforma de Avaliação</title>
+
+    <link rel="stylesheet" href="./css/style.css">
+</head>
+
+<body>
+
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">PA</div>
+
+            <div>
+                <h1>Plataforma de Avaliação</h1>
+                <span>Sistema de Gestão Educacional</span>
+            </div>
+        </div>
+
+        <div class="header-status">
+            <span class="status-dot"></span>
+            Ambiente de desenvolvimento
+        </div>
+    </header>
+
+    <main class="container">
+
+        <section class="welcome">
+            <span class="tag">SISTEMA EDUCACIONAL</span>
+
+            <h2>Bem-vindo à Plataforma de Avaliação</h2>
+
+            <p>
+                Um ambiente integrado para gerenciamento de
+                avaliações, critérios, rubricas e desempenho
+                dos estudantes.
+            </p>
+        </section>
+
+        <section class="connection-section">
+
+            <h3>Status da infraestrutura</h3>
+
+            <div class="status-grid">
+
+                <article class="status-card">
+                    <div class="card-icon">JS</div>
+
+                    <h4>Frontend</h4>
+
+                    <p>Interface da aplicação</p>
+
+                    <span class="status online">
+                        Operacional
+                    </span>
+                </article>
+
+                <article class="status-card">
+                    <div class="card-icon">API</div>
+
+                    <h4>Backend</h4>
+
+                    <p>Servidor Node.js</p>
+
+                    <span id="server-status" class="status waiting">
+                        Verificando...
+                    </span>
+                </article>
+
+                <article class="status-card">
+                    <div class="card-icon">DB</div>
+
+                    <h4>PostgreSQL</h4>
+
+                    <p>Banco de dados</p>
+
+                    <span id="database-status" class="status waiting">
+                        Verificando...
+                    </span>
+                </article>
+
+            </div>
+
+            <div class="connection-footer">
+
+                <p id="connection-message">
+                    Verificando conexão com a infraestrutura...
+                </p>
+
+                <button id="test-connection">
+                    Testar conexão novamente
+                </button>
+
+            </div>
+
+        </section>
+
+        <footer class="footer">
+            <p>
+                Plataforma de Avaliação Educacional
+                <span>•</span>
+                Versão 1.0.0
+            </p>
+        </footer>
+
+    </main>
+
+    <script src="./js/app.js"></script>
+
+</body>
+</html>
