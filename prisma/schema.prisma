@@ -117,6 +117,8 @@ model User {
 
   gradeRevisions GradeRevision[] @relation("RevisionAuthor")
 
+  submissionNotes SubmissionNote[] @relation("SubmissionNoteAuthor")
+
   @@index([role])
   @@index([active])
   @@map("users")
@@ -409,6 +411,7 @@ model Submission {
 
   versions SubmissionVersion[]
   history  SubmissionStatusHistory[]
+  notes    SubmissionNote[]
 
   @@unique([activityId, studentId])
   @@unique([activityId, groupId])
@@ -464,6 +467,23 @@ model SubmissionStatusHistory {
 
   @@index([submissionId])
   @@map("submission_status_history")
+}
+
+// Observação INTERNA do professor sobre uma entrega (não visível ao aluno).
+model SubmissionNote {
+  id           String @id @default(uuid())
+  submissionId String
+  authorId     String
+  content      String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  author     User       @relation("SubmissionNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([submissionId])
+  @@map("submission_notes")
 }
 
 // ======================================================
