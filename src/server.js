@@ -8,6 +8,7 @@ import prisma from "./config/database.js";
 import authRoutes from "./routes/authRoutes.js";
 import rubricRoutes from "./routes/rubricRoutes.js";
 import activityRoutes from "./routes/activityRoutes.js";
+import studentRoutes from "./routes/studentRoutes.js";
 
 dotenv.config();
 
@@ -75,6 +76,7 @@ app.use("/api/auth", authRoutes);
 // Rotas administrativas/pedagógicas
 app.use("/api/rubrics", rubricRoutes);
 app.use("/api/activities", activityRoutes);
+app.use("/api/student", studentRoutes);
 
 // Rota não encontrada
 app.use((req, res) => {

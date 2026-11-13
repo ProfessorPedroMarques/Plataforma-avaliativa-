@@ -61,6 +61,16 @@ enum ActivityStatus {
   ARCHIVED
 }
 
+enum SubmissionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  EVALUATED
+  RETURNED
+  RESUBMITTED
+}
+
 enum FeedbackType {
   GENERAL
   POSITIVE
@@ -145,6 +155,7 @@ model Student {
 
   individualResults        EvaluationResult[]  @relation("StudentResults")
   evaluationParticipations EvaluationStudent[]
+  submissions              Submission[]
 
   @@map("students")
 }
@@ -272,6 +283,7 @@ model StudentGroup {
   members                  GroupMember[]
   evaluationParticipations EvaluationGroup[]
   results                  EvaluationResult[]
+  submissions              Submission[]
 
   @@index([classId])
   @@map("student_groups")
@@ -364,10 +376,94 @@ model Activity {
   rubricVersion RubricVersion? @relation(fields: [rubricVersionId], references: [id], onDelete: SetNull)
   creator       User           @relation("ActivityCreator", fields: [createdById], references: [id], onDelete: Restrict)
 
+  submissions Submission[]
+
   @@index([classId])
   @@index([teacherId])
   @@index([status])
   @@map("activities")
+}
+
+// ======================================================
+// ENTREGAS DE PROJETOS (enviadas pelos alunos)
+// ======================================================
+
+model Submission {
+  id          String  @id @default(uuid())
+  activityId  String
+  studentId   String?
+  groupId     String?
+  title       String
+  description String?
+
+  status         SubmissionStatus @default(NOT_STARTED)
+  submittedAt    DateTime?
+  currentVersion Int              @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activity Activity      @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  student  Student?      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  group    StudentGroup? @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  versions SubmissionVersion[]
+  history  SubmissionStatusHistory[]
+
+  @@unique([activityId, studentId])
+  @@unique([activityId, groupId])
+  @@index([activityId])
+  @@index([studentId])
+  @@index([status])
+  @@map("submissions")
+}
+
+model SubmissionVersion {
+  id            String  @id @default(uuid())
+  submissionId  String
+  versionNumber Int
+  note          String?
+
+  createdAt DateTime @default(now())
+
+  submission Submission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  files      SubmissionFile[]
+
+  @@unique([submissionId, versionNumber])
+  @@index([submissionId])
+  @@map("submission_versions")
+}
+
+model SubmissionFile {
+  id         String @id @default(uuid())
+  versionId  String
+
+  originalName String
+  storedName   String @unique
+  mimeType     String
+  sizeBytes    Int
+
+  createdAt DateTime @default(now())
+
+  version SubmissionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@map("submission_files")
+}
+
+model SubmissionStatusHistory {
+  id           String           @id @default(uuid())
+  submissionId String
+  status       SubmissionStatus
+  note         String?
+  changedById  String?
+
+  createdAt DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@map("submission_status_history")
 }
 
 // ======================================================

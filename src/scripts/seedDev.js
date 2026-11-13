@@ -34,6 +34,18 @@ async function main() {
     create: { userId: studentUser.id, registrationNumber: "2026001" }
   });
 
+  // Segundo aluno (para testar isolamento entre estudantes)
+  const student2User = await prisma.user.upsert({
+    where: { email: "aluno2@escola.dev" },
+    update: {},
+    create: { name: "Aluno Dois", email: "aluno2@escola.dev", passwordHash: pass, role: "STUDENT" }
+  });
+  const student2 = await prisma.student.upsert({
+    where: { userId: student2User.id },
+    update: {},
+    create: { userId: student2User.id, registrationNumber: "2026002" }
+  });
+
   // Estrutura acadêmica
   const year = await prisma.schoolYear.upsert({
     where: { year: 2026 }, update: {},
@@ -61,10 +73,16 @@ async function main() {
     update: {},
     create: { studentId: student.id, classId: schoolClass.id, schoolYearId: year.id }
   });
+  await prisma.enrollment.upsert({
+    where: { studentId_schoolYearId: { studentId: student2.id, schoolYearId: year.id } },
+    update: {},
+    create: { studentId: student2.id, classId: schoolClass.id, schoolYearId: year.id }
+  });
 
   console.log(JSON.stringify({
     teacherId: teacher.id, teacherUserId: teacherUser.id,
     studentId: student.id, studentUserId: studentUser.id,
+    student2Id: student2.id, student2UserId: student2User.id,
     yearId: year.id, termId: term.id, classId: schoolClass.id, subjectId: subject.id
   }, null, 2));
   console.log("Seed de desenvolvimento concluído.");
