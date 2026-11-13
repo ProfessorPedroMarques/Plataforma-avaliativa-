@@ -54,6 +54,13 @@ enum ProjectStatus {
   CANCELLED
 }
 
+enum ActivityStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
 enum FeedbackType {
   GENERAL
   POSITIVE
@@ -90,6 +97,7 @@ model User {
   createdEvaluations Evaluation[] @relation("EvaluationCreator")
   createdRubrics     Rubric[]     @relation("RubricCreator")
   createdProjects    Project[]    @relation("ProjectCreator")
+  createdActivities  Activity[]   @relation("ActivityCreator")
 
   feedbacks Feedback[] @relation("FeedbackAuthor")
 
@@ -116,6 +124,7 @@ model Teacher {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   assignments ClassSubject[]
+  activities  Activity[]     @relation("ActivityTeacher")
 
   @@map("teachers")
 }
@@ -190,6 +199,7 @@ model SchoolClass {
   projects    Project[]
   groups      StudentGroup[]
   evaluations Evaluation[]
+  activities  Activity[]
 
   @@index([schoolYearId])
   @@map("school_classes")
@@ -205,6 +215,7 @@ model Subject {
   assignments ClassSubject[]
   evaluations Evaluation[]
   projects    Project[]
+  activities  Activity[]
 
   @@map("subjects")
 }
@@ -317,6 +328,49 @@ model Presentation {
 }
 
 // ======================================================
+// ATIVIDADES (configuradas pelo ADMIN para receber entregas)
+// ======================================================
+
+model Activity {
+  id           String  @id @default(uuid())
+  title        String
+  description  String?
+  instructions String?
+
+  classId         String
+  subjectId       String?
+  teacherId       String?
+  rubricVersionId String?
+  createdById     String
+
+  mode   EvaluationMode @default(INDIVIDUAL)
+  status ActivityStatus @default(DRAFT)
+
+  openDate DateTime?
+  dueDate  DateTime?
+
+  // Regras de arquivo (definidas pelo ADMIN)
+  allowedFormats    String[] @default([])
+  maxFileSizeMb     Int      @default(20)
+  maxFiles          Int      @default(5)
+  allowResubmission Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  schoolClass   SchoolClass    @relation(fields: [classId], references: [id], onDelete: Restrict)
+  subject       Subject?       @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  teacher       Teacher?       @relation("ActivityTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
+  rubricVersion RubricVersion? @relation(fields: [rubricVersionId], references: [id], onDelete: SetNull)
+  creator       User           @relation("ActivityCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([classId])
+  @@index([teacherId])
+  @@index([status])
+  @@map("activities")
+}
+
+// ======================================================
 // RUBRICAS E VERSIONAMENTO
 // ======================================================
 
@@ -353,6 +407,7 @@ model RubricVersion {
 
   criteria    Criterion[]
   evaluations Evaluation[]
+  activities  Activity[]
 
   @@unique([rubricId, versionNumber])
   @@map("rubric_versions")
@@ -367,6 +422,8 @@ model Criterion {
   maxPoints       Decimal @default(10) @db.Decimal(8, 2)
   position        Int
   required        Boolean @default(true)
+  active          Boolean @default(true)
+  guidance        String?
 
   rubricVersion RubricVersion @relation(fields: [rubricVersionId], references: [id], onDelete: Restrict)
 

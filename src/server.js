@@ -6,6 +6,8 @@ import helmet from "helmet";
 
 import prisma from "./config/database.js";
 import authRoutes from "./routes/authRoutes.js";
+import rubricRoutes from "./routes/rubricRoutes.js";
+import activityRoutes from "./routes/activityRoutes.js";
 
 dotenv.config();
 
@@ -70,6 +72,10 @@ app.get("/api/health", async (req, res) => {
 // Rotas de autenticação
 app.use("/api/auth", authRoutes);
 
+// Rotas administrativas/pedagógicas
+app.use("/api/rubrics", rubricRoutes);
+app.use("/api/activities", activityRoutes);
+
 // Rota não encontrada
 app.use((req, res) => {
   res.status(404).json({
@@ -80,8 +86,6 @@ app.use((req, res) => {
 
 // Tratamento de erros gerais
 app.use((error, req, res, next) => {
-  console.error("Erro na API:", error.message);
-
   if (error.message === "Origem não autorizada pelo CORS.") {
     return res.status(403).json({
       success: false,
@@ -89,6 +93,24 @@ app.use((error, req, res, next) => {
     });
   }
 
+  // Erros de domínio (HttpError) carregam status e mensagem seguros para o cliente.
+  if (error && typeof error.status === "number") {
+    return res.status(error.status).json({
+      success: false,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {})
+    });
+  }
+
+  // Erros conhecidos do Prisma (ex.: violação de unicidade/relacionamento).
+  if (error && typeof error.code === "string" && error.code.startsWith("P")) {
+    console.error("Erro Prisma:", error.code, error.message);
+    const map = { P2002: [409, "Registro duplicado."], P2025: [404, "Registro relacionado não encontrado."], P2003: [400, "Referência inválida."] };
+    const [status, message] = map[error.code] || [400, "Erro de banco de dados."];
+    return res.status(status).json({ success: false, message });
+  }
+
+  console.error("Erro na API:", error.message);
   return res.status(500).json({
     success: false,
     message: "Erro interno do servidor."
