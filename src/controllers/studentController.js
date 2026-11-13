@@ -47,6 +47,17 @@ export async function updateSubmission(req, res) {
   return ok(res, submission, "Entrega atualizada.");
 }
 
+// --- Minhas Notas (Etapa 9) ---
+export async function listGrades(req, res) {
+  const student = await studentService.getStudentByUser(req.user.id);
+  return ok(res, await studentService.listPublishedGrades(student.id));
+}
+
+export async function getGrade(req, res) {
+  const student = await studentService.getStudentByUser(req.user.id);
+  return ok(res, await studentService.getPublishedGradeDetail(student.id, req.params.resultId));
+}
+
 // --- Upload de arquivos ---
 export async function uploadFiles(req, res) {
   const filesMeta = (req.files || []).map(f => ({

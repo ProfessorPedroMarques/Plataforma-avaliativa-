@@ -131,6 +131,75 @@ export async function createSubmission(studentId, { activityId, title, descripti
   return submission;
 }
 
+// ================= ETAPA 9: MINHAS NOTAS =================
+
+const PUBLISHED_STATES = ["PUBLISHED", "REVISED"];
+
+// Lista apenas resultados PUBLICADOS do próprio aluno.
+export async function listPublishedGrades(studentId) {
+  const results = await prisma.evaluationResult.findMany({
+    where: { studentId, status: { in: PUBLISHED_STATES } },
+    orderBy: { publishedAt: "desc" },
+    include: {
+      evaluation: { select: { title: true, activity: { select: { id: true, title: true } } } },
+      submission: { select: { id: true, title: true } }
+    }
+  });
+  return results.map(r => ({
+    resultId: r.id,
+    activity: r.evaluation.activity ? { id: r.evaluation.activity.id, title: r.evaluation.activity.title } : null,
+    projectTitle: r.submission?.title || null,
+    finalScore: r.score !== null ? Number(r.score) : null,
+    maxScore: Number(r.maxScore),
+    status: r.status,
+    publishedAt: r.publishedAt
+  }));
+}
+
+// Detalhe de uma nota PUBLICADA do próprio aluno (critérios do ADMIN + pontuação do professor).
+export async function getPublishedGradeDetail(studentId, resultId) {
+  const result = await prisma.evaluationResult.findUnique({
+    where: { id: resultId },
+    include: {
+      evaluation: { select: { title: true, rubricVersionId: true, activity: { select: { id: true, title: true } } } },
+      submission: { select: { id: true, title: true } },
+      criterionScores: true,
+      feedbacks: { where: { type: "FINAL" }, take: 1, orderBy: { createdAt: "desc" } }
+    }
+  });
+
+  // Regra de segurança: só o dono e somente se PUBLICADO.
+  if (!result || result.studentId !== studentId || !PUBLISHED_STATES.includes(result.status)) {
+    throw new HttpError(404, "Nota não encontrada ou ainda não publicada.");
+  }
+
+  const criteria = await prisma.criterion.findMany({
+    where: { rubricVersionId: result.evaluation.rubricVersionId, active: true },
+    orderBy: { position: "asc" }
+  });
+  const scoreByCriterion = new Map(result.criterionScores.map(cs => [cs.criterionId, cs]));
+
+  return {
+    resultId: result.id,
+    activity: result.evaluation.activity,
+    projectTitle: result.submission?.title || null,
+    finalScore: result.score !== null ? Number(result.score) : null,
+    maxScore: Number(result.maxScore),
+    status: result.status,
+    publishedAt: result.publishedAt,
+    evaluatedAt: result.finalizedAt,
+    generalFeedback: result.feedbacks?.[0]?.content || null,
+    criteria: criteria.map(c => {
+      const cs = scoreByCriterion.get(c.id);
+      return {
+        title: c.title, description: c.description,
+        maxPoints: Number(c.maxPoints), weight: Number(c.weight),
+        score: cs ? Number(cs.score) : null, comment: cs?.comment || null
+      };
+    })
+  };
+}
+
 export async function updateSubmissionMeta(studentId, submissionId, { title, description }) {
   const submission = await getOwnedSubmission(studentId, submissionId, false);
   if (["SUBMITTED", "UNDER_REVIEW", "EVALUATED"].includes(submission.status)) {
