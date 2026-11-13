@@ -27,4 +27,9 @@ router.get("/activities/:activityId/evaluables", asyncHandler(ev.listEvaluables)
 router.post("/evaluations/open", asyncHandler(ev.openEvaluation));
 router.put("/results/:resultId/scores", asyncHandler(ev.saveScores));
 
+// Publicação e revisão controlada (Etapa 8)
+router.post("/results/:resultId/publish", asyncHandler(ev.publish));
+router.post("/activities/:activityId/publish-all", asyncHandler(ev.publishAll));
+router.post("/results/:resultId/revise", asyncHandler(ev.revise));
+
 export default router;

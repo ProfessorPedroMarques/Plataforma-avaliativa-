@@ -268,6 +268,122 @@ export async function saveScores(teacher, resultId, { scores, generalFeedback, f
   return getResultDetail(resultId);
 }
 
+// ================= ETAPA 8: PUBLICAÇÃO E REVISÃO =================
+
+// Publica um resultado CONCLUÍDO: torna visível ao aluno e marca a entrega como avaliada.
+export async function publishResult(teacher, resultId) {
+  const result = await getOwnedResult(teacher, resultId);
+  if (result.status === "PUBLISHED" || result.status === "REVISED") {
+    throw new HttpError(409, "Resultado já está publicado.");
+  }
+  if (!result.finalizedAt) {
+    throw new HttpError(409, "Conclua a avaliação antes de publicar.");
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const r = await tx.evaluationResult.update({
+      where: { id: resultId },
+      data: { status: "PUBLISHED", publishedAt: new Date() }
+    });
+    if (r.submissionId) {
+      await tx.submission.update({
+        where: { id: r.submissionId },
+        data: {
+          status: "EVALUATED",
+          history: { create: { status: "EVALUATED", note: "Resultado publicado." } }
+        }
+      });
+    }
+    return r;
+  });
+  return getResultDetail(updated.id);
+}
+
+// Publica TODOS os resultados concluídos (e ainda não publicados) de uma atividade.
+export async function publishAllForActivity(teacher, activityId) {
+  await assertActivityAllowed(teacher, activityId);
+  const evaluation = await prisma.evaluation.findUnique({ where: { activityId } });
+  if (!evaluation) throw new HttpError(404, "Nenhuma avaliação iniciada para esta atividade.");
+
+  const pending = await prisma.evaluationResult.findMany({
+    where: { evaluationId: evaluation.id, status: "DRAFT", finalizedAt: { not: null } },
+    select: { id: true }
+  });
+
+  let published = 0;
+  for (const r of pending) {
+    await publishResult(teacher, r.id);
+    published++;
+  }
+  return { published, total: pending.length };
+}
+
+// Revisão CONTROLADA de resultado já publicado: exige justificativa e registra histórico (GradeRevision).
+export async function reviseResult(teacher, resultId, { scores, generalFeedback, justification }) {
+  const result = await getOwnedResult(teacher, resultId);
+  if (result.status !== "PUBLISHED" && result.status !== "REVISED") {
+    throw new HttpError(409, "Só é possível revisar resultados já publicados.");
+  }
+  if (!justification || !justification.trim()) {
+    throw new HttpError(400, "A revisão exige uma justificativa.");
+  }
+
+  const criteria = await getActiveCriteria(result.evaluation.rubricVersionId);
+  const criteriaById = new Map(criteria.map(c => [c.id, c]));
+  const rubricVersion = await prisma.rubricVersion.findUnique({
+    where: { id: result.evaluation.rubricVersionId }, select: { totalPoints: true }
+  });
+
+  // Monta o mapa de notas final (mescla as existentes com as alteradas).
+  const existing = await prisma.criterionScore.findMany({ where: { resultId } });
+  const scoreMap = {};
+  for (const cs of existing) scoreMap[cs.criterionId] = Number(cs.score);
+  for (const item of (scores || [])) {
+    const criterion = criteriaById.get(item.criterionId);
+    if (!criterion) throw new HttpError(400, `Critério inválido: ${item.criterionId}.`);
+    if (item.score === null || item.score === undefined || item.score === "") { delete scoreMap[item.criterionId]; continue; }
+    const check = validateCriterionScore(item.score, criterion.maxPoints);
+    if (!check.valid) throw new HttpError(400, `${criterion.title}: ${check.message}`);
+    scoreMap[item.criterionId] = Number(item.score);
+  }
+
+  const calc = calculateResult({
+    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints })),
+    scores: scoreMap, totalPoints: rubricVersion.totalPoints
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const item of (scores || [])) {
+      if (item.score === null || item.score === undefined || item.score === "") {
+        await tx.criterionScore.deleteMany({ where: { resultId, criterionId: item.criterionId } });
+        continue;
+      }
+      await tx.criterionScore.upsert({
+        where: { resultId_criterionId: { resultId, criterionId: item.criterionId } },
+        update: { score: Number(item.score), comment: item.comment ?? undefined },
+        create: { resultId, criterionId: item.criterionId, score: Number(item.score), comment: item.comment ?? null }
+      });
+    }
+    if (generalFeedback !== undefined) {
+      await tx.feedback.deleteMany({ where: { resultId, type: "FINAL" } });
+      if (generalFeedback) await tx.feedback.create({ data: { resultId, authorId: teacher.userId, type: "FINAL", content: generalFeedback } });
+    }
+    // Registra a revisão (histórico auditável).
+    await tx.gradeRevision.create({
+      data: {
+        resultId, authorId: teacher.userId,
+        previousScore: result.score, newScore: calc.finalScore, justification: justification.trim()
+      }
+    });
+    await tx.evaluationResult.update({
+      where: { id: resultId },
+      data: { score: calc.finalScore, maxScore: calc.maxScore, status: "REVISED" }
+    });
+  });
+
+  return getResultDetail(resultId);
+}
+
 export async function getResultDetail(resultId) {
   const result = await prisma.evaluationResult.findUnique({
     where: { id: resultId },

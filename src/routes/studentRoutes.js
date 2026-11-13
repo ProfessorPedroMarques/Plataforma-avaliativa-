@@ -24,6 +24,10 @@ router.post("/submissions/:id/files", handleUpload, asyncHandler(c.uploadFiles))
 router.post("/submissions/:id/submit", asyncHandler(c.submit));
 router.post("/submissions/:id/resubmit", asyncHandler(c.resubmit));
 
+// Minhas Notas (somente resultados publicados)
+router.get("/grades", asyncHandler(c.listGrades));
+router.get("/grades/:resultId", asyncHandler(c.getGrade));
+
 // Download autorizado dos próprios arquivos
 router.get("/files/:fileId/download", asyncHandler(c.downloadFile));
 

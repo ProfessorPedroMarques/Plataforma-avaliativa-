@@ -38,3 +38,28 @@ export async function saveScores(req, res) {
   });
   return ok(res, result, req.body.finalize ? "Avaliação concluída." : "Rascunho salvo.");
 }
+
+// ===== Etapa 8: publicação e revisão =====
+export async function publish(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  const result = await evaluationService.publishResult(teacher, req.params.resultId);
+  await recordAudit({ actorUserId: req.user.id, action: "PUBLISH_RESULT", entity: "EvaluationResult", entityId: req.params.resultId });
+  return ok(res, result, "Resultado publicado.");
+}
+
+export async function publishAll(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  const summary = await evaluationService.publishAllForActivity(teacher, req.params.activityId);
+  await recordAudit({ actorUserId: req.user.id, action: "PUBLISH_ALL", entity: "Activity", entityId: req.params.activityId, details: summary });
+  return ok(res, summary, `${summary.published} resultado(s) publicado(s).`);
+}
+
+export async function revise(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  const justification = requireString(req.body.justification, "justification");
+  const result = await evaluationService.reviseResult(teacher, req.params.resultId, {
+    scores: req.body.scores, generalFeedback: req.body.generalFeedback, justification
+  });
+  await recordAudit({ actorUserId: req.user.id, action: "REVISE_RESULT", entity: "EvaluationResult", entityId: req.params.resultId });
+  return ok(res, result, "Resultado revisado.");
+}
