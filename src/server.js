@@ -10,6 +10,7 @@ import rubricRoutes from "./routes/rubricRoutes.js";
 import activityRoutes from "./routes/activityRoutes.js";
 import studentRoutes from "./routes/studentRoutes.js";
 import teacherRoutes from "./routes/teacherRoutes.js";
+import catalogRoutes from "./routes/catalogRoutes.js";
 
 dotenv.config();
 
@@ -79,6 +80,7 @@ app.use("/api/rubrics", rubricRoutes);
 app.use("/api/activities", activityRoutes);
 app.use("/api/student", studentRoutes);
 app.use("/api/teacher", teacherRoutes);
+app.use("/api/catalog", catalogRoutes);
 
 // Rota não encontrada
 app.use((req, res) => {
