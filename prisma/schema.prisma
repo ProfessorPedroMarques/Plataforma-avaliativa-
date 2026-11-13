@@ -379,6 +379,7 @@ model Activity {
   creator       User           @relation("ActivityCreator", fields: [createdById], references: [id], onDelete: Restrict)
 
   submissions Submission[]
+  evaluations Evaluation[]
 
   @@index([classId])
   @@index([teacherId])
@@ -412,6 +413,7 @@ model Submission {
   versions SubmissionVersion[]
   history  SubmissionStatusHistory[]
   notes    SubmissionNote[]
+  results  EvaluationResult[]
 
   @@unique([activityId, studentId])
   @@unique([activityId, groupId])
@@ -568,6 +570,7 @@ model Evaluation {
   subjectId       String
   schoolTermId    String
   projectId       String?
+  activityId      String?
   rubricVersionId String
 
   startDate DateTime?
@@ -585,7 +588,8 @@ model Evaluation {
   subject     Subject     @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   schoolTerm  SchoolTerm  @relation(fields: [schoolTermId], references: [id], onDelete: Restrict)
 
-  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  activity Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
 
   rubricVersion RubricVersion @relation(fields: [rubricVersionId], references: [id], onDelete: Restrict)
 
@@ -594,6 +598,7 @@ model Evaluation {
 
   results EvaluationResult[]
 
+  @@unique([activityId])
   @@index([createdById])
   @@index([classId])
   @@index([subjectId])
@@ -633,26 +638,30 @@ model EvaluationResult {
   id           String @id @default(uuid())
   evaluationId String
 
-  studentId String?
-  groupId   String?
+  studentId    String?
+  groupId      String?
+  submissionId String?
 
   score    Decimal?     @db.Decimal(8, 2)
   maxScore Decimal      @default(10) @db.Decimal(8, 2)
   status   ResultStatus @default(DRAFT)
 
+  finalizedAt DateTime?
   publishedAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   evaluation Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Restrict)
 
-  student Student?      @relation("StudentResults", fields: [studentId], references: [id], onDelete: Restrict)
-  group   StudentGroup? @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  student    Student?      @relation("StudentResults", fields: [studentId], references: [id], onDelete: Restrict)
+  group      StudentGroup? @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  submission Submission?   @relation(fields: [submissionId], references: [id], onDelete: SetNull)
 
   criterionScores CriterionScore[]
   feedbacks       Feedback[]
   revisions       GradeRevision[]
 
+  @@unique([evaluationId, studentId])
   @@index([evaluationId])
   @@index([studentId])
   @@index([groupId])
