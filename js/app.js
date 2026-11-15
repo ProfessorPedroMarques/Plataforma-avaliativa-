@@ -298,10 +298,88 @@ const TeacherArea = {
       const acts = await api.activitiesList();
       view.innerHTML = `<div class="card"><h3>Avaliação de Apresentações</h3>
         <p class="muted">Selecione uma atividade para avaliar os alunos durante a apresentação.</p>
-        <div class="field"><label>Atividade</label><select id="act"><option value="">— selecione —</option>${acts.map(a => `<option value="${a.id}">${esc(a.title)} (${esc(a.schoolClass?.name || "")})</option>`).join("")}</select></div>
+        <div class="field"><label>Atividade</label><select id="act"><option value="">— selecione —</option>${acts.map(a => `<option value="${a.id}">${esc(a.title)} (${esc(a.schoolClass?.name || "")})${a.mode === "GROUP" ? " — EQUIPE" : ""}</option>`).join("")}</select></div>
         <div id="evbox"></div></div>`;
-      $("#act").onchange = (e) => { if (e.target.value) this.loadEvaluables(e.target.value); else $("#evbox").innerHTML = ""; };
+      const byId = new Map(acts.map(a => [a.id, a]));
+      $("#act").onchange = (e) => {
+        const a = byId.get(e.target.value);
+        if (!a) { $("#evbox").innerHTML = ""; return; }
+        if (a.mode === "GROUP") this.loadGroups(a.id); else this.loadEvaluables(a.id);
+      };
     });
+  },
+  async loadGroups(activityId) {
+    const box = $("#evbox"); box.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+    await guard(async () => {
+      const groups = await api.tGroups(activityId);
+      box.innerHTML = `<h4 style="margin:10px 0;color:var(--purple)">Grupos / Equipes</h4>${
+        groups.length ? groups.map(g => `<div class="list-item"><div class="info"><div class="title">${esc(g.name)}</div>
+          <div class="sub">${g.members.map(m => esc(m.name)).join(", ") || '<span class="muted">sem integrantes</span>'}</div></div>
+          <button class="btn sm" onclick="TeacherArea.evaluateGroup('${activityId}','${g.id}')"${g.members.length ? "" : " disabled"}>Avaliar grupo</button></div>`).join("")
+          : '<div class="empty">Nenhum grupo cadastrado para esta turma. Peça ao ADMIN para criar.</div>'
+      }`;
+    });
+  },
+  async evaluateGroup(activityId, groupId) {
+    await guard(async () => {
+      const ctx = await api.tOpenGroup({ activityId, groupId });
+      this._gctx = ctx;
+      const gc = ctx.groupCriteria.map((c, i) => `<div class="crit"><div class="chead"><span class="ctitle">${i + 1}. ${esc(c.title)}${c.required ? ' <span style="color:var(--red)">*</span>' : ""}</span><span class="cmax">máx ${c.maxPoints} · peso ${c.weight}</span></div>
+        ${c.description ? `<div class="cdesc">${esc(c.description)}</div>` : ""}
+        <div class="cinputs"><input type="number" min="0" max="${c.maxPoints}" step="0.1" data-cid="${c.id}" class="gscore-in" placeholder="nota" value="${c.score ?? ""}">
+        <input type="text" data-cid="${c.id}" class="gcomment-in" placeholder="comentário" value="${esc(c.comment ?? "")}"></div></div>`).join("");
+      const members = ctx.members.map(m => `<div class="list-item"><div class="info"><div class="title">${esc(m.name)}</div>
+        <div class="sub">${pill(m.state)}${m.finalScore != null ? " · Nota: <b>" + m.finalScore + "</b>" : ""}</div></div>
+        <button class="btn sm" onclick="TeacherArea.evaluateMember('${activityId}','${groupId}','${m.resultId}','${esc(m.name)}')">Avaliar aluno</button></div>`).join("");
+      openModal(`Grupo: ${ctx.group.name}`, `
+        <h4 style="color:var(--cyan);margin-bottom:6px">Avaliação COLETIVA (vale para todos do grupo)</h4>
+        ${gc || '<p class="muted">Nenhum critério coletivo nesta rubrica.</p>'}
+        <button class="btn" id="savegroup" style="margin:6px 0 16px">Salvar notas coletivas</button>
+        <h4 style="color:var(--purple);margin-bottom:6px">Avaliação INDIVIDUAL (cada aluno)</h4>
+        <p class="muted" style="font-size:12px;margin-bottom:8px">Clique em "Avaliar aluno" para lançar os critérios individuais de cada integrante.</p>
+        ${members}
+        <button class="btn green sm" id="pubgroup" style="margin-top:12px">Publicar notas concluídas</button>
+        <p class="muted" style="font-size:12px;margin-top:8px">* obrigatório. A nota final de cada aluno soma os critérios coletivos + individuais.</p>`);
+      $("#pubgroup").onclick = () => guard(async () => {
+        const r = await request("POST", `/api/teacher/activities/${activityId}/publish-all`);
+        toast(`${r.published} nota(s) publicada(s).`); this.evaluateGroup(activityId, groupId);
+      });
+      $("#savegroup").onclick = () => guard(async () => {
+        const scores = [...document.querySelectorAll(".gscore-in")].map(inp => ({
+          criterionId: inp.dataset.cid, score: inp.value === "" ? null : Number(inp.value),
+          comment: document.querySelector(`.gcomment-in[data-cid="${inp.dataset.cid}"]`).value || null
+        }));
+        await api.tGroupScores(groupId, { activityId, scores });
+        toast("Notas coletivas salvas (aplicadas a todos)."); this.evaluateGroup(activityId, groupId);
+      });
+    });
+  },
+  async evaluateMember(activityId, groupId, resultId, name) {
+    const ctx = this._gctx;
+    const member = ctx.members.find(m => m.resultId === resultId);
+    const inds = ctx.individualCriteria.map((c, i) => {
+      const cur = member.individualScores.find(s => s.criterionId === c.id) || {};
+      return `<div class="crit"><div class="chead"><span class="ctitle">${i + 1}. ${esc(c.title)}${c.required ? ' <span style="color:var(--red)">*</span>' : ""}</span><span class="cmax">máx ${c.maxPoints} · peso ${c.weight}</span></div>
+        ${c.description ? `<div class="cdesc">${esc(c.description)}</div>` : ""}
+        <div class="cinputs"><input type="number" min="0" max="${c.maxPoints}" step="0.1" data-cid="${c.id}" class="iscore-in" placeholder="nota" value="${cur.score ?? ""}">
+        <input type="text" data-cid="${c.id}" class="icomment-in" placeholder="comentário" value="${esc(cur.comment ?? "")}"></div></div>`;
+    }).join("");
+    openModal(`Avaliar: ${name}`, `
+      <p class="muted">Critérios individuais de ${esc(name)}. (Os coletivos já valem para todo o grupo.)</p>
+      ${inds || '<p class="muted">Nenhum critério individual nesta rubrica.</p>'}
+      <div class="field"><label>Feedback para o aluno</label><textarea id="ifb">${esc(member.generalFeedback ?? "")}</textarea></div>
+      <div class="row"><button class="btn ghost" id="isave">Salvar rascunho</button><button class="btn green" id="iconclude">Concluir aluno</button></div>`);
+    const collect = () => [...document.querySelectorAll(".iscore-in")].map(inp => ({
+      criterionId: inp.dataset.cid, score: inp.value === "" ? null : Number(inp.value),
+      comment: document.querySelector(`.icomment-in[data-cid="${inp.dataset.cid}"]`).value || null
+    }));
+    const save = (finalize) => guard(async () => {
+      const r = await api.tIndividualScores(resultId, { scores: collect(), generalFeedback: $("#ifb").value, finalize });
+      toast(finalize ? `Aluno concluído! Nota final: ${r.finalScore}` : `Rascunho salvo. Parcial: ${r.finalScore}`);
+      closeModal(); this.evaluateGroup(activityId, groupId);
+    });
+    $("#isave").onclick = () => save(false);
+    $("#iconclude").onclick = () => save(true);
   },
   async loadEvaluables(activityId) {
     const box = $("#evbox"); box.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
@@ -370,11 +448,83 @@ const AdminArea = {
     appEl().innerHTML = "";
     appEl().appendChild(tabs([
       { key: "rubricas", label: "Rubricas e Critérios" },
-      { key: "atividades", label: "Atividades" }
+      { key: "atividades", label: "Atividades" },
+      { key: "cadastros", label: "Cadastros" },
+      { key: "grupos", label: "Grupos / Equipes" }
     ], this.tab, (k) => { this.tab = k; this.render(); }));
     const view = document.createElement("div"); view.id = "view"; appEl().appendChild(view);
-    if (this.tab === "rubricas") this.rubricas(view); else this.atividades(view);
+    if (this.tab === "rubricas") this.rubricas(view);
+    else if (this.tab === "atividades") this.atividades(view);
+    else if (this.tab === "cadastros") this.cadastros(view);
+    else this.grupos(view);
   },
+  async cadastros(view) {
+    view.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+    await guard(async () => {
+      const [classes, subjects, teachers, users] = await Promise.all([api.catClasses(), api.catSubjects(), api.catTeachers(), api.adListUsers()]);
+      const profs = users.filter(u => u.role === "TEACHER");
+      const alunos = users.filter(u => u.role === "STUDENT");
+      view.innerHTML = `<div class="welcome"><span class="tag">ADMINISTRAÇÃO</span><h2>Cadastros</h2>
+        <p>Cadastre professores avaliadores, alunos e faça matrículas.</p></div>
+        <div class="grid cols-2">
+          <div class="card"><h3>Novo professor avaliador</h3><form id="ft">
+            <div class="field"><label>Nome</label><input id="tn" required></div>
+            <div class="field"><label>E-mail</label><input id="te" type="email" required></div>
+            <div class="field"><label>Senha (mín. 8)</label><input id="tp" type="password" required></div>
+            <button class="btn">Cadastrar professor</button></form></div>
+          <div class="card"><h3>Novo aluno</h3><form id="fs">
+            <div class="field"><label>Nome</label><input id="sn" required></div>
+            <div class="field"><label>E-mail</label><input id="se" type="email" required></div>
+            <div class="field"><label>Senha (mín. 8)</label><input id="sp" type="password" required></div>
+            <div class="field"><label>Matrícula (opcional)</label><input id="sr"></div>
+            <button class="btn">Cadastrar aluno</button></form></div>
+        </div>
+        <div class="card"><h3>Vincular professor a turma/disciplina (avaliador da turma)</h3><form id="fa"><div class="row">
+          <select id="at">${profs.map(p => `<option value="${p.teacher?.id}">${esc(p.name)}</option>`).join("")}</select>
+          <select id="ac">${classes.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+          <select id="as">${subjects.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select>
+          <button class="btn">Vincular</button></div></form></div>
+        <div class="card"><h3>Matricular aluno em turma</h3><form id="fe"><div class="row">
+          <select id="es">${alunos.map(a => `<option value="${a.student?.id}">${esc(a.name)}</option>`).join("")}</select>
+          <select id="ecl">${classes.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+          <button class="btn">Matricular</button></div></form></div>
+        <div class="grid cols-2">
+          <div class="card"><h3>Professores (${profs.length})</h3>${profs.map(p => `<div class="list-item"><div class="info"><div class="title">${esc(p.name)}</div><div class="sub">${esc(p.email)}</div></div></div>`).join("") || '<div class="empty">Nenhum.</div>'}</div>
+          <div class="card"><h3>Alunos (${alunos.length})</h3>${alunos.map(a => `<div class="list-item"><div class="info"><div class="title">${esc(a.name)}</div><div class="sub">${esc(a.email)}</div></div></div>`).join("") || '<div class="empty">Nenhum.</div>'}</div>
+        </div>`;
+      $("#ft").onsubmit = (e) => { e.preventDefault(); guard(async () => { await api.adCreateTeacher({ name: $("#tn").value.trim(), email: $("#te").value.trim(), password: $("#tp").value }); toast("Professor cadastrado."); this.cadastros(view); }); };
+      $("#fs").onsubmit = (e) => { e.preventDefault(); guard(async () => { await api.adCreateStudent({ name: $("#sn").value.trim(), email: $("#se").value.trim(), password: $("#sp").value, registrationNumber: $("#sr").value.trim() || undefined }); toast("Aluno cadastrado."); this.cadastros(view); }); };
+      $("#fa").onsubmit = (e) => { e.preventDefault(); guard(async () => { await api.adAssignTeacher({ teacherId: $("#at").value, classId: $("#ac").value, subjectId: $("#as").value }); toast("Professor vinculado."); }); };
+      $("#fe").onsubmit = (e) => { e.preventDefault(); guard(async () => { await api.adEnroll($("#ecl").value, $("#es").value); toast("Aluno matriculado."); }); };
+    });
+  },
+  async grupos(view) {
+    view.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+    await guard(async () => {
+      const classes = await api.catClasses();
+      view.innerHTML = `<div class="welcome"><span class="tag">ADMINISTRAÇÃO</span><h2>Grupos / Equipes</h2>
+        <p>Monte equipes com alunos diferentes em cada grupo.</p></div>
+        <div class="card"><div class="field"><label>Turma</label><select id="gcls">${classes.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
+          <form id="fg" class="row"><input id="gname" placeholder="Nome do grupo (ex.: Equipe 1)" required><button class="btn">Criar grupo</button></form></div>
+        <div id="glist"></div>`;
+      const load = async () => {
+        const classId = $("#gcls").value;
+        const [groups, students] = await Promise.all([api.adGroups(classId), api.adClassStudents(classId)]);
+        $("#glist").innerHTML = groups.length ? groups.map(g => `<div class="card"><h3>${esc(g.name)} <button class="btn sm danger" style="float:right" onclick="AdminArea.delGroup('${g.id}')">Excluir</button></h3>
+          ${g.members.map(m => `<div class="list-item"><div class="info"><div class="title">${esc(m.name)}</div></div><button class="btn sm ghost" onclick="AdminArea.rmMember('${g.id}','${m.studentId}')">Remover</button></div>`).join("") || '<p class="muted">Sem integrantes.</p>'}
+          <div class="row" style="margin-top:8px"><select class="addsel" data-g="${g.id}">${students.filter(s => !g.members.some(m => m.studentId === s.id)).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("") || '<option value="">(todos já no grupo)</option>'}</select>
+          <button class="btn sm" onclick="AdminArea.addMember('${g.id}')">Adicionar aluno</button></div></div>`).join("")
+          : '<div class="empty">Nenhum grupo nesta turma.</div>';
+      };
+      this._loadGroups = load;
+      $("#gcls").onchange = load;
+      $("#fg").onsubmit = (e) => { e.preventDefault(); guard(async () => { await api.adCreateGroup({ name: $("#gname").value.trim(), classId: $("#gcls").value }); $("#gname").value = ""; toast("Grupo criado."); load(); }); };
+      await load();
+    });
+  },
+  addMember(gid) { guard(async () => { const sel = document.querySelector(`.addsel[data-g="${gid}"]`); if (!sel.value) return; await api.adAddMember(gid, sel.value); toast("Aluno adicionado."); this._loadGroups(); }); },
+  rmMember(gid, sid) { guard(async () => { await api.adRemoveMember(gid, sid); toast("Aluno removido."); this._loadGroups(); }); },
+  delGroup(id) { guard(async () => { if (!confirm("Excluir este grupo?")) return; await api.adDeleteGroup(id); toast("Grupo excluído."); this._loadGroups(); }); },
   async rubricas(view) {
     view.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
     await guard(async () => {
@@ -402,7 +552,7 @@ const AdminArea = {
       const v = r.versions[r.versions.length - 1];
       const locked = v.immutable;
       const body = `<p><b>${esc(r.name)}</b> · versão ${v.versionNumber} ${locked ? pill("PUBLISHED") : pill("DRAFT")}</p>
-        <div id="crlist">${v.criteria.map(c => `<div class="list-item"><div class="info"><div class="title">${esc(c.title)} ${c.active ? "" : "<span class='muted'>(inativo)</span>"}</div>
+        <div id="crlist">${v.criteria.map(c => `<div class="list-item"><div class="info"><div class="title">${esc(c.title)} ${c.active ? "" : "<span class='muted'>(inativo)</span>"} ${c.scope === "INDIVIDUAL" ? '<span class="pill REVISED">individual</span>' : '<span class="pill PUBLISHED">coletivo</span>'}</div>
           <div class="sub">máx ${c.maxPoints} · peso ${c.weight} ${c.required ? "· obrigatório" : ""}</div></div>
           ${locked ? "" : `<div><button class="btn sm ghost" onclick="AdminArea.toggleCrit('${c.id}',${!c.active},'${id}')">${c.active ? "Desativar" : "Ativar"}</button>
           <button class="btn sm danger" onclick="AdminArea.delCrit('${c.id}','${id}')">×</button></div>`}</div>`).join("") || '<div class="empty">Sem critérios.</div>'}</div>
@@ -411,6 +561,7 @@ const AdminArea = {
           <div class="field"><input id="ct" placeholder="Título"></div>
           <div class="field"><input id="cd" placeholder="Descrição / orientação"></div>
           <div class="row"><input id="cmax" type="number" value="10" placeholder="Máx"><input id="cw" type="number" value="1" placeholder="Peso">
+          <select id="cscope" title="Escopo"><option value="GROUP">Coletivo (grupo)</option><option value="INDIVIDUAL">Individual</option></select>
           <label style="flex:0 0 auto;display:flex;align-items:center;gap:6px;color:var(--muted)"><input type="checkbox" id="creq" checked style="width:auto"> obrigatório</label></div>
           <button class="btn sm" id="addcrit">Adicionar</button></div>
         <div class="field"><label>Pontuação total da versão</label><input id="tp" type="number" value="${v.totalPoints}"></div>
@@ -419,7 +570,7 @@ const AdminArea = {
       if (!locked) {
         $("#addcrit").onclick = () => guard(async () => {
           if (!$("#ct").value.trim()) return toast("Informe o título.", "err");
-          await api.criterionAdd(v.id, { title: $("#ct").value.trim(), description: $("#cd").value.trim(), maxPoints: Number($("#cmax").value), weight: Number($("#cw").value), required: $("#creq").checked });
+          await api.criterionAdd(v.id, { title: $("#ct").value.trim(), description: $("#cd").value.trim(), maxPoints: Number($("#cmax").value), weight: Number($("#cw").value), required: $("#creq").checked, scope: $("#cscope").value });
           toast("Critério adicionado."); this.editRubric(id);
         });
         $("#publish").onclick = () => guard(async () => {

@@ -32,4 +32,10 @@ router.post("/results/:resultId/publish", asyncHandler(ev.publish));
 router.post("/activities/:activityId/publish-all", asyncHandler(ev.publishAll));
 router.post("/results/:resultId/revise", asyncHandler(ev.revise));
 
+// Avaliação em grupo (equipe)
+router.get("/activities/:activityId/groups", asyncHandler(ev.listGroups));
+router.post("/evaluations/open-group", asyncHandler(ev.openGroup));
+router.put("/groups/:groupId/group-scores", asyncHandler(ev.saveGroupScores));
+router.put("/results/:resultId/individual-scores", asyncHandler(ev.saveIndividualScores));
+
 export default router;

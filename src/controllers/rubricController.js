@@ -67,6 +67,7 @@ export async function addCriterion(req, res) {
     weight: req.body.weight !== undefined ? requireNumber(req.body.weight, "weight", { min: 0 }) : undefined,
     maxPoints: req.body.maxPoints !== undefined ? requireNumber(req.body.maxPoints, "maxPoints", { min: 0 }) : undefined,
     required: req.body.required,
+    scope: req.body.scope === "INDIVIDUAL" ? "INDIVIDUAL" : "GROUP",
     position: req.body.position !== undefined ? requireNumber(req.body.position, "position", { min: 1 }) : undefined
   };
   const criterion = await rubricService.addCriterion(req.params.versionId, data);

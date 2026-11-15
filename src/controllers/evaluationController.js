@@ -1,6 +1,7 @@
 
 import * as teacherService from "../services/teacherService.js";
 import * as evaluationService from "../services/evaluationService.js";
+import * as groupEval from "../services/groupEvaluationService.js";
 import { recordAudit } from "../services/auditService.js";
 import { ok, created, requireString, HttpError } from "../utils/http.js";
 
@@ -62,4 +63,36 @@ export async function revise(req, res) {
   });
   await recordAudit({ actorUserId: req.user.id, action: "REVISE_RESULT", entity: "EvaluationResult", entityId: req.params.resultId });
   return ok(res, result, "Resultado revisado.");
+}
+
+// ===== Avaliação em grupo (equipe) =====
+export async function listGroups(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  return ok(res, await groupEval.listGroupsForActivity(teacher, req.params.activityId));
+}
+
+export async function openGroup(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  const activityId = requireString(req.body.activityId, "activityId");
+  const groupId = requireString(req.body.groupId, "groupId");
+  const ctx = await groupEval.openGroupEvaluation(teacher, activityId, groupId);
+  await recordAudit({ actorUserId: req.user.id, action: "OPEN_GROUP_EVAL", entity: "Evaluation", entityId: ctx.evaluationId });
+  return created(res, ctx, "Avaliação do grupo carregada.");
+}
+
+export async function saveGroupScores(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  if (req.body.scores !== undefined && !Array.isArray(req.body.scores)) throw new HttpError(400, "'scores' deve ser lista.");
+  const ctx = await groupEval.saveGroupScores(teacher, requireString(req.body.activityId, "activityId"), requireString(req.params.groupId, "groupId"), req.body.scores);
+  return ok(res, ctx, "Pontuações coletivas salvas.");
+}
+
+export async function saveIndividualScores(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  if (req.body.scores !== undefined && !Array.isArray(req.body.scores)) throw new HttpError(400, "'scores' deve ser lista.");
+  const r = await groupEval.saveIndividualScores(teacher, req.params.resultId, {
+    scores: req.body.scores, generalFeedback: req.body.generalFeedback,
+    finalize: req.body.finalize === true ? true : (req.body.finalize === false ? false : undefined)
+  });
+  return ok(res, r, req.body.finalize ? "Avaliação individual concluída." : "Pontuações individuais salvas.");
 }
