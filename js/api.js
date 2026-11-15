@@ -101,5 +101,23 @@ const api = {
   // Catálogo
   catClasses: () => request("GET", "/api/catalog/classes"),
   catSubjects: () => request("GET", "/api/catalog/subjects"),
-  catTeachers: () => request("GET", "/api/catalog/teachers")
+  catTeachers: () => request("GET", "/api/catalog/teachers"),
+  // Admin - cadastros
+  adCreateTeacher: (b) => request("POST", "/api/admin/teachers", b),
+  adCreateStudent: (b) => request("POST", "/api/admin/students", b),
+  adAssignTeacher: (b) => request("POST", "/api/admin/class-subjects", b),
+  adEnroll: (classId, studentId) => request("POST", `/api/admin/classes/${classId}/enroll`, { studentId }),
+  adClassStudents: (classId) => request("GET", `/api/admin/classes/${classId}/students`),
+  adListUsers: (role) => request("GET", `/api/admin/users${role ? "?role=" + role : ""}`),
+  // Admin - grupos
+  adGroups: (classId) => request("GET", `/api/admin/groups${classId ? "?classId=" + classId : ""}`),
+  adCreateGroup: (b) => request("POST", "/api/admin/groups", b),
+  adDeleteGroup: (id) => request("DELETE", `/api/admin/groups/${id}`),
+  adAddMember: (id, studentId) => request("POST", `/api/admin/groups/${id}/members`, { studentId }),
+  adRemoveMember: (id, studentId) => request("DELETE", `/api/admin/groups/${id}/members/${studentId}`),
+  // Teacher - avaliação em grupo
+  tGroups: (activityId) => request("GET", `/api/teacher/activities/${activityId}/groups`),
+  tOpenGroup: (b) => request("POST", "/api/teacher/evaluations/open-group", b),
+  tGroupScores: (groupId, b) => request("PUT", `/api/teacher/groups/${groupId}/group-scores`, b),
+  tIndividualScores: (resultId, b) => request("PUT", `/api/teacher/results/${resultId}/individual-scores`, b)
 };

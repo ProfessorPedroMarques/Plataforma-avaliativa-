@@ -17,6 +17,11 @@ enum UserRole {
   STUDENT
 }
 
+enum CriterionScope {
+  GROUP
+  INDIVIDUAL
+}
+
 enum RecordStatus {
   ACTIVE
   INACTIVE
@@ -539,9 +544,10 @@ model Criterion {
   weight          Decimal @default(1) @db.Decimal(8, 2)
   maxPoints       Decimal @default(10) @db.Decimal(8, 2)
   position        Int
-  required        Boolean @default(true)
-  active          Boolean @default(true)
+  required        Boolean        @default(true)
+  active          Boolean        @default(true)
   guidance        String?
+  scope           CriterionScope @default(GROUP)
 
   rubricVersion RubricVersion @relation(fields: [rubricVersionId], references: [id], onDelete: Restrict)
 

@@ -7,7 +7,7 @@ import {
 } from "../utils/rubricCalculation.js";
 
 // Garante que a atividade pertence ao professor (suas turmas).
-async function assertActivityAllowed(teacher, activityId) {
+export async function assertActivityAllowed(teacher, activityId) {
   const ids = await allowedActivityIds(teacher);
   if (!ids.includes(activityId)) throw new HttpError(404, "Atividade fora das suas turmas.");
   const activity = await prisma.activity.findUnique({ where: { id: activityId } });
@@ -30,7 +30,7 @@ async function deriveSchoolTermId(activity) {
 }
 
 // Cria (uma vez) ou recupera a Evaluation vinculada à atividade.
-async function getOrCreateEvaluation(teacher, activity) {
+export async function getOrCreateEvaluation(teacher, activity) {
   if (!activity.rubricVersionId) {
     throw new HttpError(409, "A atividade não possui rubrica vinculada. Configure no ADMIN.");
   }
@@ -59,7 +59,7 @@ async function getOrCreateEvaluation(teacher, activity) {
 }
 
 // Critérios ATIVOS da rubrica vinculada (configurados pelo ADMIN).
-async function getActiveCriteria(rubricVersionId) {
+export async function getActiveCriteria(rubricVersionId) {
   return prisma.criterion.findMany({
     where: { rubricVersionId, active: true },
     orderBy: { position: "asc" }

@@ -4,7 +4,7 @@ import { HttpError } from "../utils/http.js";
 
 const criterionSelect = {
   id: true, title: true, description: true, guidance: true,
-  weight: true, maxPoints: true, position: true, required: true, active: true
+  weight: true, maxPoints: true, position: true, required: true, active: true, scope: true
 };
 
 const versionInclude = {
@@ -86,7 +86,7 @@ export async function duplicateRubric(adminId, sourceRubricId, { name, sourceVer
             create: version.criteria.map(c => ({
               title: c.title, description: c.description, guidance: c.guidance,
               weight: c.weight, maxPoints: c.maxPoints, position: c.position,
-              required: c.required, active: c.active
+              required: c.required, active: c.active, scope: c.scope
             }))
           }
         }
@@ -112,7 +112,7 @@ export async function createVersion(rubricId, { copyFromVersionId, description }
     criteriaData = src.criteria.map(c => ({
       title: c.title, description: c.description, guidance: c.guidance,
       weight: c.weight, maxPoints: c.maxPoints, position: c.position,
-      required: c.required, active: c.active
+      required: c.required, active: c.active, scope: c.scope
     }));
   }
 
@@ -186,6 +186,7 @@ export async function addCriterion(versionId, data) {
       maxPoints: data.maxPoints ?? 10,
       required: data.required ?? true,
       active: data.active ?? true,
+      scope: data.scope === "INDIVIDUAL" ? "INDIVIDUAL" : "GROUP",
       position: data.position ?? nextPosition
     },
     select: criterionSelect
@@ -206,7 +207,7 @@ async function getCriterionEditable(criterionId) {
 
 export async function updateCriterion(criterionId, data) {
   await getCriterionEditable(criterionId);
-  const fields = ["title", "description", "guidance", "weight", "maxPoints", "required", "active", "position"];
+  const fields = ["title", "description", "guidance", "weight", "maxPoints", "required", "active", "position", "scope"];
   const updateData = {};
   for (const f of fields) if (data[f] !== undefined) updateData[f] = data[f];
   return prisma.criterion.update({ where: { id: criterionId }, data: updateData, select: criterionSelect });
