@@ -154,7 +154,7 @@ export async function saveIndividualScores(teacher, resultId, { scores, generalF
     include: { evaluation: { select: { activityId: true, rubricVersionId: true } } }
   });
   if (!result) throw new HttpError(404, "Resultado não encontrado.");
-  await assertActivityAllowed(teacher, result.evaluation.activityId);
+  await assertActivityAllowed(teacher, result.evaluation.activityId, "presentation");
   if (result.status === "PUBLISHED" || result.status === "REVISED") throw new HttpError(409, "Resultado já publicado. Use o fluxo de revisão.");
 
   const criteria = await getActiveCriteria(result.evaluation.rubricVersionId);

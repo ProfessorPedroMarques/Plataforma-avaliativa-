@@ -16,15 +16,19 @@ function parseActivityBody(body, { partial = false } = {}) {
   if (body.description !== undefined) data.description = optionalString(body.description, "description");
   if (body.instructions !== undefined) data.instructions = optionalString(body.instructions, "instructions");
 
-  // Turma e disciplina são fixas (curso único). Professores avaliadores: lista teacherIds.
-  if (body.teacherIds !== undefined) {
-    if (!Array.isArray(body.teacherIds) || body.teacherIds.some(t => typeof t !== "string" || !t)) {
-      throw new HttpError(400, "teacherIds deve ser uma lista de professores.");
-    }
-    data.teacherIds = body.teacherIds;
-  } else if (body.teacherId) {
-    data.teacherIds = [String(body.teacherId)];
-  }
+  // Turma e disciplina são fixas (curso único). Professores por papel:
+  // documentTeacherIds (avaliam os documentos) e presentationTeacherIds (avaliam a apresentação);
+  // teacherIds = os dois papéis ao mesmo tempo.
+  const idList = (v, name) => {
+    if (!Array.isArray(v) || v.some(t => typeof t !== "string" || !t)) throw new HttpError(400, `${name} deve ser uma lista de professores.`);
+    return v;
+  };
+  if (body.teacherIds !== undefined) data.teacherIds = idList(body.teacherIds, "teacherIds");
+  else if (body.teacherId) data.teacherIds = [String(body.teacherId)];
+  if (body.documentTeacherIds !== undefined) data.documentTeacherIds = idList(body.documentTeacherIds, "documentTeacherIds");
+  if (body.presentationTeacherIds !== undefined) data.presentationTeacherIds = idList(body.presentationTeacherIds, "presentationTeacherIds");
+  if (body.documentCriteria !== undefined) data.documentCriteria = body.documentCriteria;
+  if (body.presentationCriteria !== undefined) data.presentationCriteria = body.presentationCriteria;
   if (body.rubricVersionId !== undefined) data.rubricVersionId = optionalString(body.rubricVersionId, "rubricVersionId");
 
   if (body.mode !== undefined) {
@@ -66,8 +70,8 @@ export async function list(req, res) {
   // Professor enxerga apenas as atividades das suas turmas (ou em que é responsável).
   if (req.user.role === "TEACHER") {
     const teacher = await teacherService.getTeacherByUser(req.user.id);
-    const allowed = new Set(await teacherService.allowedActivityIds(teacher));
-    return ok(res, activities.filter(a => allowed.has(a.id)));
+    const roles = await teacherService.rolesByActivity(teacher);
+    return ok(res, activities.filter(a => roles.has(a.id)).map(a => ({ ...a, myRoles: roles.get(a.id) })));
   }
   return ok(res, activities);
 }
@@ -94,4 +98,17 @@ export async function remove(req, res) {
   const result = await activityService.deleteActivity(req.params.id);
   await recordAudit({ actorUserId: req.user.id, action: "DELETE", entity: "Activity", entityId: result.id });
   return ok(res, result, "Atividade removida.");
+}
+
+// Critérios da atividade (parte DOCUMENT = documentos; PRESENTATION = apresentação).
+export async function addCriterion(req, res) {
+  const activity = await activityService.addCriterion(req.user.id, req.params.id, String(req.body.part || ""), req.body);
+  await recordAudit({ actorUserId: req.user.id, action: "ADD_CRITERION", entity: "Activity", entityId: req.params.id });
+  return created(res, activity, "Critério adicionado.");
+}
+
+export async function removeCriterion(req, res) {
+  const activity = await activityService.removeCriterion(req.user.id, req.params.id, req.params.criterionId);
+  await recordAudit({ actorUserId: req.user.id, action: "DELETE_CRITERION", entity: "Activity", entityId: req.params.id });
+  return ok(res, activity, "Critério excluído.");
 }

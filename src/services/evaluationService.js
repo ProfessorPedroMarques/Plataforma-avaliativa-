@@ -7,9 +7,14 @@ import {
 } from "../utils/rubricCalculation.js";
 
 // Garante que a atividade pertence ao professor (suas turmas).
-export async function assertActivityAllowed(teacher, activityId) {
-  const ids = await allowedActivityIds(teacher);
-  if (!ids.includes(activityId)) throw new HttpError(404, "Atividade fora das suas turmas.");
+export async function assertActivityAllowed(teacher, activityId, kind) {
+  const ids = await allowedActivityIds(teacher, kind);
+  if (!ids.includes(activityId)) {
+    const msg = kind === "presentation" ? "Você não é avaliador da apresentação desta atividade."
+      : kind === "documents" ? "Você não é avaliador dos documentos desta atividade."
+      : "Atividade não vinculada a você.";
+    throw new HttpError(404, msg);
+  }
   const activity = await prisma.activity.findUnique({ where: { id: activityId } });
   if (!activity) throw new HttpError(404, "Atividade não encontrada.");
   return activity;
