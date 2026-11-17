@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 
 import prisma from "./config/database.js";
+import { syncCourse } from "./services/courseService.js";
 import authRoutes from "./routes/authRoutes.js";
 import rubricRoutes from "./routes/rubricRoutes.js";
 import activityRoutes from "./routes/activityRoutes.js";
@@ -130,12 +131,16 @@ async function startServer() {
   try {
     await prisma.$connect();
 
+    // Turma/matéria únicas (Desenvolvimento de Sistemas) e matrícula automática dos alunos.
+    const course = await syncCourse();
+
     const server = app.listen(PORT, () => {
       console.log("--------------------------------");
       console.log("PLATAFORMA DE AVALIAÇÃO");
       console.log("--------------------------------");
       console.log(`Servidor: http://localhost:${PORT}`);
       console.log("Banco de dados: conectado");
+      console.log(`Curso: ${course.className} (${course.enrolled} aluno(s) matriculado(s) agora)`);
       console.log("Autenticação: habilitada");
       console.log("--------------------------------");
     });

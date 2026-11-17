@@ -145,6 +145,7 @@ model Teacher {
 
   assignments ClassSubject[]
   activities  Activity[]     @relation("ActivityTeacher")
+  evaluatorOf ActivityEvaluator[]
 
   @@map("teachers")
 }
@@ -388,11 +389,28 @@ model Activity {
 
   submissions Submission[]
   evaluations Evaluation[]
+  evaluators  ActivityEvaluator[]
 
   @@index([classId])
   @@index([teacherId])
   @@index([status])
   @@map("activities")
+}
+
+// Professores avaliadores vinculados a uma atividade (uma atividade pode ter vários).
+model ActivityEvaluator {
+  id         String @id @default(uuid())
+  activityId String
+  teacherId  String
+
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  teacher  Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([activityId, teacherId])
+  @@index([teacherId])
+  @@map("activity_evaluators")
 }
 
 // ======================================================

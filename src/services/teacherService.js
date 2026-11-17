@@ -16,12 +16,12 @@ export async function teacherClassIds(teacherId) {
   return [...new Set(rows.map(r => r.classId))];
 }
 
-// Filtro de atividades que o professor pode ver: nas suas turmas OU onde é o responsável.
+// Filtro de atividades que o professor pode ver: aquelas em que é professor avaliador
+// (uma atividade pode ter vários) ou o responsável principal.
 async function allowedActivityFilter(teacher) {
-  const classIds = await teacherClassIds(teacher.id);
   return {
     OR: [
-      { classId: { in: classIds.length ? classIds : ["__none__"] } },
+      { evaluators: { some: { teacherId: teacher.id } } },
       { teacherId: teacher.id }
     ]
   };
@@ -37,8 +37,9 @@ export async function allowedActivityIds(teacher) {
 const RECEIVED_STATES = ["SUBMITTED", "UNDER_REVIEW", "EVALUATED", "RETURNED", "RESUBMITTED"];
 
 export async function dashboard(teacher) {
-  const classIds = await teacherClassIds(teacher.id);
   const activityIds = await allowedActivityIds(teacher);
+  const acts = await prisma.activity.findMany({ where: { id: { in: activityIds.length ? activityIds : ["__none__"] } }, select: { classId: true } });
+  const classIds = [...new Set(acts.map(a => a.classId))];
 
   const [studentsCount, byStatusRaw, evalsByStatus, awaitingPublication] = await Promise.all([
     prisma.enrollment.count({ where: { classId: { in: classIds.length ? classIds : ["__none__"] }, status: "ACTIVE" } }),
@@ -49,11 +50,11 @@ export async function dashboard(teacher) {
     }),
     prisma.evaluation.groupBy({
       by: ["status"],
-      where: { classId: { in: classIds.length ? classIds : ["__none__"] } },
+      where: { activityId: { in: activityIds.length ? activityIds : ["__none__"] } },
       _count: { _all: true }
     }),
     prisma.evaluationResult.count({
-      where: { status: "DRAFT", evaluation: { classId: { in: classIds.length ? classIds : ["__none__"] } } }
+      where: { status: "DRAFT", evaluation: { activityId: { in: activityIds.length ? activityIds : ["__none__"] } } }
     })
   ]);
 

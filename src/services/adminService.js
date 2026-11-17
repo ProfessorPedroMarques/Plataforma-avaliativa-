@@ -2,6 +2,7 @@
 import bcrypt from "bcryptjs";
 import prisma from "../config/database.js";
 import { HttpError } from "../utils/http.js";
+import { getCourse, enrollInCourse } from "./courseService.js";
 
 function normalizeEmail(email) { return String(email).toLowerCase().trim(); }
 
@@ -26,10 +27,15 @@ export async function createTeacher({ name, email, password, employeeCode }) {
 }
 
 // ---- Alunos ----
-export async function createStudent({ name, email, password, registrationNumber }) {
+// Todo aluno é matriculado automaticamente na turma única (Desenvolvimento de Sistemas)
+// e pode, opcionalmente, já entrar em um grupo.
+export async function createStudent({ name, email, password, registrationNumber, groupId }) {
+  if (groupId) await getGroup(groupId);
   const user = await createUserWithRole("STUDENT", { name, email, password });
   const student = await prisma.student.create({ data: { userId: user.id, registrationNumber: registrationNumber || null } });
-  return { id: student.id, userId: user.id, name: user.name, email: user.email, registrationNumber: student.registrationNumber };
+  await enrollInCourse(student.id);
+  if (groupId) await setStudentGroup(student.id, groupId);
+  return { id: student.id, userId: user.id, name: user.name, email: user.email, registrationNumber: student.registrationNumber, groupId: groupId || null };
 }
 
 export async function listUsers(role) {
@@ -41,67 +47,70 @@ export async function listUsers(role) {
   });
 }
 
-// ---- Atribuir professor a turma+disciplina (professor avaliador da turma) ----
-export async function assignTeacher({ classId, subjectId, teacherId }) {
-  const [c, s, t] = await Promise.all([
-    prisma.schoolClass.findUnique({ where: { id: classId } }),
-    prisma.subject.findUnique({ where: { id: subjectId } }),
-    prisma.teacher.findUnique({ where: { id: teacherId } })
-  ]);
-  if (!c) throw new HttpError(400, "Turma inexistente.");
-  if (!s) throw new HttpError(400, "Disciplina inexistente.");
-  if (!t) throw new HttpError(400, "Professor inexistente.");
-
-  const existing = await prisma.classSubject.findFirst({ where: { classId, subjectId, teacherId } });
-  if (existing) throw new HttpError(409, "Este professor já está vinculado a esta turma/disciplina.");
-  return prisma.classSubject.create({ data: { classId, subjectId, teacherId } });
+// Alunos do curso com o grupo de cada um.
+export async function listStudents() {
+  const course = await getCourse();
+  const students = await prisma.student.findMany({
+    orderBy: { user: { name: "asc" } },
+    include: {
+      user: { select: { id: true, name: true, email: true, mustChangePassword: true } },
+      groupMemberships: { where: { group: { classId: course.classId } }, include: { group: { select: { id: true, name: true } } } }
+    }
+  });
+  return students.map(s => ({
+    id: s.id, userId: s.user.id, name: s.user.name, email: s.user.email,
+    registrationNumber: s.registrationNumber, mustChangePassword: s.user.mustChangePassword,
+    group: s.groupMemberships[0]?.group || null
+  }));
 }
 
-// ---- Matrícula ----
-export async function enrollStudent({ studentId, classId }) {
-  const schoolClass = await prisma.schoolClass.findUnique({ where: { id: classId }, select: { schoolYearId: true } });
-  if (!schoolClass) throw new HttpError(400, "Turma inexistente.");
+// Coloca o aluno em um grupo (ou tira de todos, com groupId vazio).
+// Um aluno participa de no máximo um grupo do curso.
+export async function setStudentGroup(studentId, groupId) {
+  const course = await getCourse();
   const student = await prisma.student.findUnique({ where: { id: studentId } });
-  if (!student) throw new HttpError(400, "Aluno inexistente.");
-
-  const existing = await prisma.enrollment.findUnique({
-    where: { studentId_schoolYearId: { studentId, schoolYearId: schoolClass.schoolYearId } }
-  });
-  if (existing) {
-    if (existing.classId === classId) throw new HttpError(409, "Aluno já matriculado nesta turma.");
-    return prisma.enrollment.update({ where: { id: existing.id }, data: { classId, status: "ACTIVE" } });
+  if (!student) throw new HttpError(404, "Aluno não encontrado.");
+  if (groupId) {
+    const group = await getGroup(groupId);
+    if (group.classId !== course.classId) throw new HttpError(400, "Grupo não pertence ao curso.");
   }
-  return prisma.enrollment.create({ data: { studentId, classId, schoolYearId: schoolClass.schoolYearId } });
-}
-
-export async function classStudents(classId) {
-  const enrollments = await prisma.enrollment.findMany({
-    where: { classId, status: "ACTIVE" },
-    include: { student: { select: { id: true, registrationNumber: true, user: { select: { name: true } } } } },
-    orderBy: { student: { user: { name: "asc" } } }
+  await enrollInCourse(studentId);
+  await prisma.$transaction(async (tx) => {
+    await tx.groupMember.deleteMany({ where: { studentId, group: { classId: course.classId }, ...(groupId ? { NOT: { groupId } } : {}) } });
+    if (groupId) {
+      await tx.groupMember.upsert({
+        where: { groupId_studentId: { groupId, studentId } },
+        update: {}, create: { groupId, studentId }
+      });
+    }
   });
-  return enrollments.map(e => ({ id: e.student.id, name: e.student.user.name, registrationNumber: e.student.registrationNumber }));
+  return { studentId, groupId: groupId || null };
 }
 
-// ---- Grupos / Equipes ----
-export async function createGroup({ name, classId, description }) {
+// ---- Grupos / Equipes (sempre na turma única) ----
+export async function createGroup({ name, description, studentIds = [] }) {
   if (!name || !name.trim()) throw new HttpError(400, "Nome do grupo é obrigatório.");
-  const schoolClass = await prisma.schoolClass.findUnique({ where: { id: classId } });
-  if (!schoolClass) throw new HttpError(400, "Turma inexistente.");
-  return prisma.studentGroup.create({ data: { name: name.trim(), classId, description: description || null } });
+  const course = await getCourse();
+  const dup = await prisma.studentGroup.findFirst({ where: { classId: course.classId, name: { equals: name.trim(), mode: "insensitive" } } });
+  if (dup) throw new HttpError(409, "Já existe um grupo com este nome.");
+  const group = await prisma.studentGroup.create({ data: { name: name.trim(), classId: course.classId, description: description || null } });
+  for (const studentId of studentIds) await setStudentGroup(studentId, group.id);
+  return (await listGroups()).find(g => g.id === group.id);
 }
 
 const groupInclude = {
   schoolClass: { select: { id: true, name: true } },
-  members: { include: { student: { select: { id: true, registrationNumber: true, user: { select: { name: true } } } } } }
+  members: { include: { student: { select: { id: true, registrationNumber: true, user: { select: { name: true, email: true } } } } } }
 };
 
-export async function listGroups(classId) {
-  const where = classId ? { classId } : {};
-  const groups = await prisma.studentGroup.findMany({ where, orderBy: { name: "asc" }, include: groupInclude });
+export async function listGroups() {
+  const course = await getCourse();
+  const groups = await prisma.studentGroup.findMany({ where: { classId: course.classId }, orderBy: { name: "asc" }, include: groupInclude });
   return groups.map(g => ({
-    id: g.id, name: g.name, description: g.description, schoolClass: g.schoolClass,
-    members: g.members.map(m => ({ studentId: m.student.id, name: m.student.user.name, registrationNumber: m.student.registrationNumber }))
+    id: g.id, name: g.name, description: g.description,
+    members: g.members
+      .map(m => ({ studentId: m.student.id, name: m.student.user.name, email: m.student.user.email, registrationNumber: m.student.registrationNumber }))
+      .sort((a, b) => a.name.localeCompare(b.name))
   }));
 }
 
@@ -111,15 +120,17 @@ export async function getGroup(id) {
   return g;
 }
 
+export async function renameGroup(id, name) {
+  if (!name || !name.trim()) throw new HttpError(400, "Nome do grupo é obrigatório.");
+  await getGroup(id);
+  await prisma.studentGroup.update({ where: { id }, data: { name: name.trim() } });
+  return (await listGroups()).find(g => g.id === id);
+}
+
 export async function addMember(groupId, studentId) {
-  const group = await getGroup(groupId);
-  // O aluno precisa estar matriculado na turma do grupo.
-  const enrolled = await prisma.enrollment.findFirst({ where: { studentId, classId: group.classId, status: "ACTIVE" } });
-  if (!enrolled) throw new HttpError(409, "O aluno precisa estar matriculado na turma do grupo.");
-  const exists = await prisma.groupMember.findUnique({ where: { groupId_studentId: { groupId, studentId } } });
-  if (exists) throw new HttpError(409, "Aluno já está no grupo.");
-  await prisma.groupMember.create({ data: { groupId, studentId } });
-  return listGroups(group.classId).then(gs => gs.find(x => x.id === groupId));
+  await getGroup(groupId);
+  await setStudentGroup(studentId, groupId);
+  return (await listGroups()).find(x => x.id === groupId);
 }
 
 export async function removeMember(groupId, studentId) {
@@ -131,7 +142,16 @@ export async function removeMember(groupId, studentId) {
 
 export async function deleteGroup(id) {
   await getGroup(id);
-  await prisma.studentGroup.delete({ where: { id } });
+  const [subs, results] = await Promise.all([
+    prisma.submission.count({ where: { groupId: id } }),
+    prisma.evaluationResult.count({ where: { groupId: id } })
+  ]);
+  if (subs + results > 0) throw new HttpError(409, "Este grupo já enviou documentos e não pode ser excluído. Você pode remover os alunos dele.");
+  await prisma.$transaction([
+    prisma.groupMember.deleteMany({ where: { groupId: id } }),
+    prisma.evaluationGroup.deleteMany({ where: { groupId: id } }),
+    prisma.studentGroup.delete({ where: { id } })
+  ]);
   return { id };
 }
 

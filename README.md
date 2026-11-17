@@ -37,11 +37,14 @@ Abra o `index.html` com o **Live Server** do VS Code em `http://127.0.0.1:5500` 
 
 Dados de teste (opcional, apenas desenvolvimento): `node src/scripts/seedDev.js`.
 
+## Curso único
+Todos os alunos pertencem à mesma turma e à mesma matéria: **Desenvolvimento de Sistemas**. Ao iniciar, o servidor cria (ou reaproveita) essa turma, a disciplina e o período letivo, e matricula automaticamente todos os alunos. Não há cadastro de turma nem matrícula manual.
+
 ## Roteiro de uso
-1. **Admin › Professores e Alunos:** cadastre os professores e os alunos (já escolhendo a turma) e vincule cada professor à turma.
-2. **Admin › Grupos:** crie os grupos da turma e adicione os alunos.
-3. **Admin › Critérios de Avaliação:** crie um conjunto, cadastre os critérios de documento e de apresentação e clique em *Publicar*.
-4. **Admin › Atividades:** crie a atividade (entrega em grupo) e selecione os critérios publicados.
+1. **Admin › Professores e Alunos:** cadastre os professores e os alunos (o aluno pode já entrar em um grupo). Na lista de alunos, o seletor ao lado de cada nome muda o grupo dele.
+2. **Admin › Grupos:** crie os grupos marcando os alunos de cada um. Cada aluno participa de um grupo só; é possível renomear, remover alunos e excluir grupos que ainda não enviaram documentos.
+3. **Admin › Critérios de Avaliação:** crie um conjunto, cadastre os critérios de documento e de apresentação e clique em *Publicar*. Critérios (e o conjunto inteiro) podem ser excluídos enquanto nenhum professor tiver lançado nota com eles.
+4. **Admin › Atividades:** crie a atividade, marque **um ou mais professores avaliadores** e selecione os critérios publicados. O botão *Professores* altera os avaliadores depois. Só os professores marcados veem e avaliam os documentos da atividade.
 5. **Aluno › Enviar Documentos:** qualquer integrante inicia o envio, anexa os arquivos e confirma.
 6. **Professor › Documentos Enviados:** abra, baixe os arquivos, dê as notas e comente.
 7. **Professor › Avaliação da Apresentação:** avalie cada aluno, conclua e publique.

@@ -100,3 +100,9 @@ export async function reorderCriteria(req, res) {
   const criteria = await rubricService.reorderCriteria(req.params.versionId, req.body.order);
   return ok(res, criteria, "Critérios reordenados.");
 }
+
+export async function remove(req, res) {
+  const result = await rubricService.deleteRubric(req.params.id);
+  await recordAudit({ actorUserId: req.user.id, action: "DELETE", entity: "Rubric", entityId: result.id });
+  return ok(res, result, "Conjunto de critérios excluído.");
+}

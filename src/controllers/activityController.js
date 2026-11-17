@@ -16,9 +16,15 @@ function parseActivityBody(body, { partial = false } = {}) {
   if (body.description !== undefined) data.description = optionalString(body.description, "description");
   if (body.instructions !== undefined) data.instructions = optionalString(body.instructions, "instructions");
 
-  if (!partial || body.classId !== undefined) data.classId = requireString(body.classId, "classId");
-  if (body.subjectId !== undefined) data.subjectId = optionalString(body.subjectId, "subjectId");
-  if (body.teacherId !== undefined) data.teacherId = optionalString(body.teacherId, "teacherId");
+  // Turma e disciplina são fixas (curso único). Professores avaliadores: lista teacherIds.
+  if (body.teacherIds !== undefined) {
+    if (!Array.isArray(body.teacherIds) || body.teacherIds.some(t => typeof t !== "string" || !t)) {
+      throw new HttpError(400, "teacherIds deve ser uma lista de professores.");
+    }
+    data.teacherIds = body.teacherIds;
+  } else if (body.teacherId) {
+    data.teacherIds = [String(body.teacherId)];
+  }
   if (body.rubricVersionId !== undefined) data.rubricVersionId = optionalString(body.rubricVersionId, "rubricVersionId");
 
   if (body.mode !== undefined) {
@@ -55,8 +61,8 @@ export async function create(req, res) {
 }
 
 export async function list(req, res) {
-  const { classId, teacherId, status } = req.query;
-  const activities = await activityService.listActivities({ classId, teacherId, status });
+  const { teacherId, status } = req.query;
+  const activities = await activityService.listActivities({ teacherId, status });
   // Professor enxerga apenas as atividades das suas turmas (ou em que é responsável).
   if (req.user.role === "TEACHER") {
     const teacher = await teacherService.getTeacherByUser(req.user.id);
