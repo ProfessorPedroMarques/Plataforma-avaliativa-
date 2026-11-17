@@ -42,10 +42,12 @@ Todos os alunos pertencem à mesma turma e à mesma matéria: **Desenvolvimento 
 
 ## Roteiro de uso
 1. **Admin › Professores e Alunos:** cadastre os professores e os alunos (o aluno pode já entrar em um grupo). Na lista de alunos, o seletor ao lado de cada nome muda o grupo dele.
-2. **Admin › Grupos:** crie os grupos marcando os alunos de cada um. Cada aluno participa de um grupo só; é possível renomear, remover alunos e excluir grupos que ainda não enviaram documentos.
-3. **Admin › Critérios de Avaliação:** crie um conjunto, cadastre os critérios de documento e de apresentação e clique em *Publicar*. Critérios (e o conjunto inteiro) podem ser excluídos enquanto nenhum professor tiver lançado nota com eles.
-4. **Admin › Atividades:** crie a atividade, marque **um ou mais professores avaliadores** e selecione os critérios publicados. O botão *Professores* altera os avaliadores depois. Só os professores marcados veem e avaliam os documentos da atividade.
-5. **Aluno › Enviar Documentos:** qualquer integrante inicia o envio, anexa os arquivos e confirma.
-6. **Professor › Documentos Enviados:** abra, baixe os arquivos, dê as notas e comente.
-7. **Professor › Avaliação da Apresentação:** avalie cada aluno, conclua e publique.
+2. **Admin › Grupos:** crie os grupos marcando os alunos de cada um. Cada aluno participa de um grupo só.
+3. **Admin › 📄 Atividades — Documentos:** cadastre o que os grupos vão enviar (ex.: Documento do TCC), o prazo, os **critérios de avaliação do documento** e os **professores que corrigem os documentos** — tudo na mesma tela.
+4. **Admin › 🎤 Avaliação da Apresentação:** para cada atividade, cadastre os **critérios da apresentação** e marque os **professores da banca**. O cartão mostra "pronta para avaliar" quando estiver completo.
+5. **Aluno › Enviar Documentos:** escolhe os arquivos e clica em *Enviar documentos ao professor* (um clique: anexa e confirma).
+6. **Professor › Documentos Enviados:** abre, baixa, dá as notas e comenta. Documentos anexados mas não confirmados pelo aluno também aparecem, marcados com aviso.
+7. **Professor (banca) › Avaliação da Apresentação:** planilha por grupo — digita as notas de cada aluno, clica em *Salvar notas do grupo* e depois em *Publicar notas prontas*. Não há etapa de "concluir": a nota fica pronta sozinha quando documentos e apresentação têm nota.
 8. **Aluno › Minhas Notas:** confere nota do grupo, da apresentação, nota final e comentários.
+
+Critérios podem ser incluídos e excluídos até o primeiro lançamento de nota; depois ficam travados para preservar o histórico.

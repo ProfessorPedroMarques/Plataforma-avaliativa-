@@ -92,6 +92,10 @@ const api = {
   activityUpdate: (id, b) => request("PATCH", `/api/activities/${id}`, b),
   activitySetStatus: (id, status) => request("PATCH", `/api/activities/${id}/status`, { status }),
   activityDelete: (id) => request("DELETE", `/api/activities/${id}`),
+  activityAddCriterion: (id, b) => request("POST", `/api/activities/${id}/criteria`, b),
+  activityDelCriterion: (id, cid) => request("DELETE", `/api/activities/${id}/criteria/${cid}`),
+  tPresSheet: (activityId) => request("GET", `/api/teacher/activities/${activityId}/presentation-sheet`),
+  tPresSave: (activityId, studentId, b) => request("PUT", `/api/teacher/activities/${activityId}/presentation/${studentId}`, b),
   // Student
   stActivities: () => request("GET", "/api/student/activities"),
   stActivity: (id) => request("GET", `/api/student/activities/${id}`),

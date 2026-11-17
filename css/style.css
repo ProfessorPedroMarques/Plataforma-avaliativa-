@@ -146,3 +146,12 @@ textarea{resize:vertical;min-height:70px}
 .check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .check input { width: auto; margin: 0; }
 .stgroup { padding: 6px 8px; }
+
+/* Planilha de notas da apresentação (professor) */
+.sheet { width: 100%; border-collapse: collapse; font-size: 14px; }
+.sheet th, .sheet td { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.sheet th { font-size: 13px; color: var(--cyan); }
+.sheet input { min-width: 70px; padding: 6px 8px; }
+.sheet .pfb { min-width: 160px; }
+.sheet .nowrap { white-space: nowrap; }
+.crit-row { margin-bottom: 6px; }

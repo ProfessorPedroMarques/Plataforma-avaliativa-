@@ -16,22 +16,25 @@ export async function teacherClassIds(teacherId) {
   return [...new Set(rows.map(r => r.classId))];
 }
 
-// Filtro de atividades que o professor pode ver: aquelas em que é professor avaliador
-// (uma atividade pode ter vários) ou o responsável principal.
-async function allowedActivityFilter(teacher) {
-  return {
-    OR: [
-      { evaluators: { some: { teacherId: teacher.id } } },
-      { teacherId: teacher.id }
-    ]
-  };
+// Atividades que o professor pode ver. kind:
+//   "documents"    → é avaliador dos documentos enviados
+//   "presentation" → é avaliador da apresentação
+//   (vazio)        → qualquer um dos dois papéis
+function allowedActivityFilter(teacher, kind) {
+  const role = kind === "documents" ? { documents: true } : kind === "presentation" ? { presentation: true } : {};
+  return { evaluators: { some: { teacherId: teacher.id, ...role } } };
 }
 
 // IDs das atividades autorizadas (para consultas de entregas).
-export async function allowedActivityIds(teacher) {
-  const filter = await allowedActivityFilter(teacher);
-  const acts = await prisma.activity.findMany({ where: filter, select: { id: true } });
+export async function allowedActivityIds(teacher, kind) {
+  const acts = await prisma.activity.findMany({ where: allowedActivityFilter(teacher, kind), select: { id: true } });
   return acts.map(a => a.id);
+}
+
+// Papéis do professor em cada atividade: { [activityId]: { documents, presentation } }.
+export async function rolesByActivity(teacher) {
+  const rows = await prisma.activityEvaluator.findMany({ where: { teacherId: teacher.id }, select: { activityId: true, documents: true, presentation: true } });
+  return new Map(rows.map(r => [r.activityId, { documents: r.documents, presentation: r.presentation }]));
 }
 
 const RECEIVED_STATES = ["SUBMITTED", "UNDER_REVIEW", "EVALUATED", "RETURNED", "RESUBMITTED"];
@@ -75,7 +78,7 @@ export async function dashboard(teacher) {
 
 // Lista entregas recebidas com filtros (turma, atividade, aluno, status).
 export async function listReceivedSubmissions(teacher, { classId, activityId, studentId, status } = {}) {
-  const activityIds = await allowedActivityIds(teacher);
+  const activityIds = await allowedActivityIds(teacher, "documents");
   const where = {
     activityId: { in: activityIds.length ? activityIds : ["__none__"] }
   };
@@ -83,11 +86,18 @@ export async function listReceivedSubmissions(teacher, { classId, activityId, st
   if (classId) where.activity = { classId };
   if (studentId) where.studentId = studentId;
   if (status) where.status = status;
-  else where.status = { in: RECEIVED_STATES }; // por padrão, só os efetivamente recebidos
+  else {
+    // Por padrão: envios confirmados + envios ainda não confirmados que já têm arquivos
+    // (assim o professor enxerga o documento mesmo se o aluno esqueceu de confirmar).
+    where.OR = [
+      { status: { in: RECEIVED_STATES } },
+      { status: { in: ["NOT_STARTED", "IN_PROGRESS"] }, versions: { some: { files: { some: {} } } } }
+    ];
+  }
 
   return prisma.submission.findMany({
     where,
-    orderBy: { submittedAt: "desc" },
+    orderBy: [{ submittedAt: { sort: "desc", nulls: "last" } }, { updatedAt: "desc" }],
     include: {
       activity: { select: { id: true, title: true, classId: true, dueDate: true, schoolClass: { select: { name: true } } } },
       student: { select: { id: true, registrationNumber: true, user: { select: { name: true } } } },

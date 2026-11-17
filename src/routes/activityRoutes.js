@@ -18,5 +18,7 @@ router.post("/", authorizeRole("ADMIN"), asyncHandler(c.create));
 router.patch("/:id", authorizeRole("ADMIN"), asyncHandler(c.update));
 router.patch("/:id/status", authorizeRole("ADMIN"), asyncHandler(c.setStatus));
 router.delete("/:id", authorizeRole("ADMIN"), asyncHandler(c.remove));
+router.post("/:id/criteria", authorizeRole("ADMIN"), asyncHandler(c.addCriterion));
+router.delete("/:id/criteria/:criterionId", authorizeRole("ADMIN"), asyncHandler(c.removeCriterion));
 
 export default router;

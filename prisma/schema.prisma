@@ -402,6 +402,9 @@ model ActivityEvaluator {
   id         String @id @default(uuid())
   activityId String
   teacherId  String
+  // Papéis do professor nesta atividade: avalia os documentos e/ou a apresentação.
+  documents    Boolean @default(true)
+  presentation Boolean @default(true)
 
   activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
   teacher  Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
