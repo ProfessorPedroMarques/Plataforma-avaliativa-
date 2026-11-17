@@ -2,6 +2,7 @@
 import * as teacherService from "../services/teacherService.js";
 import * as evaluationService from "../services/evaluationService.js";
 import * as groupEval from "../services/groupEvaluationService.js";
+import * as assessment from "../services/assessmentService.js";
 import { recordAudit } from "../services/auditService.js";
 import { ok, created, requireString, HttpError } from "../utils/http.js";
 
@@ -95,4 +96,31 @@ export async function saveIndividualScores(req, res) {
     finalize: req.body.finalize === true ? true : (req.body.finalize === false ? false : undefined)
   });
   return ok(res, r, req.body.finalize ? "Avaliação individual concluída." : "Pontuações individuais salvas.");
+}
+
+// ===== Avaliação em duas etapas: DOCUMENTOS (nota do grupo) e APRESENTAÇÃO (nota individual) =====
+export async function openDocumentEvaluation(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  return ok(res, await assessment.openDocumentEvaluation(teacher, req.params.id), "Avaliação dos documentos carregada.");
+}
+
+export async function saveDocumentScores(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  if (req.body.scores !== undefined && !Array.isArray(req.body.scores)) throw new HttpError(400, "'scores' deve ser lista.");
+  const ctx = await assessment.saveDocumentScores(teacher, req.params.id, { scores: req.body.scores, feedback: req.body.feedback });
+  await recordAudit({ actorUserId: req.user.id, action: "SAVE_DOCUMENT_SCORES", entity: "Submission", entityId: req.params.id });
+  return ok(res, ctx, "Notas dos documentos salvas (nota do grupo).");
+}
+
+export async function listPresentation(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  return ok(res, await assessment.listPresentationStudents(teacher, req.params.activityId));
+}
+
+export async function openPresentation(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  const ctx = await assessment.openPresentationEvaluation(
+    teacher, requireString(req.body.activityId, "activityId"), requireString(req.body.studentId, "studentId")
+  );
+  return created(res, ctx, "Avaliação da apresentação carregada.");
 }

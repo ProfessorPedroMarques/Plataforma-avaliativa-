@@ -227,7 +227,7 @@ export async function saveScores(teacher, resultId, { scores, generalFeedback, f
   }
 
   const calc = calculateResult({
-    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints })),
+    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints, scope: c.scope })),
     scores: scoreMap,
     totalPoints: rubricVersion.totalPoints
   });
@@ -348,7 +348,7 @@ export async function reviseResult(teacher, resultId, { scores, generalFeedback,
   }
 
   const calc = calculateResult({
-    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints })),
+    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints, scope: c.scope })),
     scores: scoreMap, totalPoints: rubricVersion.totalPoints
   });
 

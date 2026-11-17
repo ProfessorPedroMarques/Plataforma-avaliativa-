@@ -38,4 +38,10 @@ router.post("/evaluations/open-group", asyncHandler(ev.openGroup));
 router.put("/groups/:groupId/group-scores", asyncHandler(ev.saveGroupScores));
 router.put("/results/:resultId/individual-scores", asyncHandler(ev.saveIndividualScores));
 
+// Avaliação em duas etapas
+router.post("/submissions/:id/document-evaluation", asyncHandler(ev.openDocumentEvaluation));
+router.put("/submissions/:id/document-evaluation", asyncHandler(ev.saveDocumentScores));
+router.get("/activities/:activityId/presentation", asyncHandler(ev.listPresentation));
+router.post("/presentation/open", asyncHandler(ev.openPresentation));
+
 export default router;

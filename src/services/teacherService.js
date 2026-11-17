@@ -90,6 +90,7 @@ export async function listReceivedSubmissions(teacher, { classId, activityId, st
     include: {
       activity: { select: { id: true, title: true, classId: true, dueDate: true, schoolClass: { select: { name: true } } } },
       student: { select: { id: true, registrationNumber: true, user: { select: { name: true } } } },
+      group: { select: { id: true, name: true, members: { select: { student: { select: { id: true, user: { select: { name: true } } } } } } } },
       versions: { select: { id: true, versionNumber: true, _count: { select: { files: true } } } }
     }
   });
@@ -102,6 +103,7 @@ async function assertSubmissionAllowed(teacher, submissionId, full = true) {
     include: full ? {
       activity: { select: { id: true, title: true, classId: true, allowedFormats: true, rubricVersionId: true, mode: true, schoolClass: { select: { name: true } } } },
       student: { select: { id: true, registrationNumber: true, user: { select: { name: true } } } },
+      group: { select: { id: true, name: true, members: { select: { student: { select: { id: true, user: { select: { name: true } } } } } } } },
       versions: { orderBy: { versionNumber: "asc" }, include: { files: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true } } } },
       history: { orderBy: { createdAt: "asc" } },
       notes: { orderBy: { createdAt: "desc" }, include: { author: { select: { id: true, name: true } } } }
