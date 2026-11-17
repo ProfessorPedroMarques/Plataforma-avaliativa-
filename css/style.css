@@ -140,3 +140,9 @@ textarea{resize:vertical;min-height:70px}
 .card h3{gap:8px}
 .header-right .btn-logout+.btn-logout{margin-left:-4px}
 @media(max-width:720px){.header{flex-wrap:wrap;gap:8px}.header-right{flex-wrap:wrap;gap:8px}}
+
+/* Listas de seleção múltipla (professores avaliadores, alunos do grupo) */
+.checks { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 10px; margin-top: 4px; }
+.check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.check input { width: auto; margin: 0; }
+.stgroup { padding: 6px 8px; }

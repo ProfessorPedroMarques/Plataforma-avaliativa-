@@ -16,6 +16,7 @@ router.get("/", asyncHandler(c.list));
 router.get("/:id", asyncHandler(c.getById));
 router.patch("/:id", asyncHandler(c.update));
 router.post("/:id/duplicate", asyncHandler(c.duplicate));
+router.delete("/:id", asyncHandler(c.remove));
 
 // Versões
 router.post("/:id/versions", asyncHandler(c.createVersion));

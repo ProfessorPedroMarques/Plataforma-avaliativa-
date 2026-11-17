@@ -48,7 +48,27 @@ export async function getRubric(id) {
     }
   });
   if (!rubric) throw new HttpError(404, "Rubrica não encontrada.");
+  for (const v of rubric.versions) v.scored = (await scoresInVersion(v.id)) > 0;
   return rubric;
+}
+
+// Exclui um conjunto de critérios inteiro, desde que não esteja vinculado a atividades.
+export async function deleteRubric(id) {
+  const rubric = await getRubric(id);
+  const versionIds = rubric.versions.map(v => v.id);
+  const [acts, evals] = await Promise.all([
+    prisma.activity.count({ where: { rubricVersionId: { in: versionIds } } }),
+    prisma.evaluation.count({ where: { rubricVersionId: { in: versionIds } } })
+  ]);
+  if (acts + evals > 0) {
+    throw new HttpError(409, "Este conjunto está vinculado a atividades. Troque os critérios das atividades antes de excluí-lo.");
+  }
+  await prisma.$transaction([
+    prisma.criterion.deleteMany({ where: { rubricVersionId: { in: versionIds } } }),
+    prisma.rubricVersion.deleteMany({ where: { rubricId: id } }),
+    prisma.rubric.delete({ where: { id } })
+  ]);
+  return { id };
 }
 
 export async function updateRubric(id, { name, description, active }) {
@@ -128,14 +148,22 @@ export async function createVersion(rubricId, { copyFromVersionId, description }
   });
 }
 
+// Quantas notas já foram lançadas com os critérios desta versão.
+async function scoresInVersion(versionId) {
+  return prisma.criterionScore.count({ where: { criterion: { rubricVersionId: versionId } } });
+}
+
+// Os critérios podem ser alterados/excluídos enquanto nenhum professor tiver
+// lançado nota com eles (mesmo depois de publicados). Depois disso, ficam
+// congelados para preservar o histórico das notas.
 async function getEditableVersion(versionId) {
   const version = await prisma.rubricVersion.findUnique({
     where: { id: versionId },
     include: versionInclude
   });
   if (!version) throw new HttpError(404, "Versão de rubrica não encontrada.");
-  if (version.immutable) {
-    throw new HttpError(409, "Versão publicada é imutável. Crie uma nova versão para alterar.");
+  if (await scoresInVersion(versionId) > 0) {
+    throw new HttpError(409, "Estes critérios já foram usados em notas e não podem mais ser alterados. Use \"Duplicar\" para criar um novo conjunto.");
   }
   return version;
 }
@@ -194,14 +222,9 @@ export async function addCriterion(versionId, data) {
 }
 
 async function getCriterionEditable(criterionId) {
-  const criterion = await prisma.criterion.findUnique({
-    where: { id: criterionId },
-    include: { rubricVersion: { select: { immutable: true } } }
-  });
+  const criterion = await prisma.criterion.findUnique({ where: { id: criterionId } });
   if (!criterion) throw new HttpError(404, "Critério não encontrado.");
-  if (criterion.rubricVersion.immutable) {
-    throw new HttpError(409, "Critério pertence a versão publicada (imutável).");
-  }
+  await getEditableVersion(criterion.rubricVersionId);
   return criterion;
 }
 
@@ -221,10 +244,8 @@ export async function setCriterionActive(criterionId, active) {
 export async function deleteCriterion(criterionId) {
   const criterion = await getCriterionEditable(criterionId);
   // Se já houver pontuações associadas, não excluir (integridade).
-  const used = await prisma.criterionScore.count({ where: { criterionId } });
-  if (used > 0) throw new HttpError(409, "Critério já possui pontuações; desative-o em vez de excluir.");
   await prisma.criterion.delete({ where: { id: criterionId } });
-  return { id: criterionId };
+  return { id: criterionId, rubricVersionId: criterion.rubricVersionId };
 }
 
 // Reordena critérios: recebe [{ id, position }]. Usa posições temporárias para evitar colisão de @@unique.

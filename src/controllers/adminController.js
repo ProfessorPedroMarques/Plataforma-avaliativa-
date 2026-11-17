@@ -21,7 +21,8 @@ export async function createStudent(req, res) {
     name: requireString(req.body.name, "name"),
     email: requireString(req.body.email, "email"),
     password: requireString(req.body.password, "password"),
-    registrationNumber: optionalString(req.body.registrationNumber, "registrationNumber")
+    registrationNumber: optionalString(req.body.registrationNumber, "registrationNumber"),
+    groupId: optionalString(req.body.groupId, "groupId")
   };
   const student = await adminService.createStudent(data);
   await recordAudit({ actorUserId: req.user.id, action: "CREATE", entity: "Student", entityId: student.id });
@@ -32,42 +33,37 @@ export async function listUsers(req, res) {
   return ok(res, await adminService.listUsers(req.query.role));
 }
 
-export async function assignTeacher(req, res) {
-  const cs = await adminService.assignTeacher({
-    classId: requireString(req.body.classId, "classId"),
-    subjectId: requireString(req.body.subjectId, "subjectId"),
-    teacherId: requireString(req.body.teacherId, "teacherId")
-  });
-  await recordAudit({ actorUserId: req.user.id, action: "ASSIGN", entity: "ClassSubject", entityId: cs.id });
-  return created(res, cs, "Professor vinculado à turma/disciplina.");
+export async function listStudents(req, res) {
+  return ok(res, await adminService.listStudents());
 }
 
-export async function enroll(req, res) {
-  const e = await adminService.enrollStudent({
-    studentId: requireString(req.body.studentId, "studentId"),
-    classId: requireString(req.params.classId, "classId")
-  });
-  await recordAudit({ actorUserId: req.user.id, action: "ENROLL", entity: "Enrollment", entityId: e.id });
-  return created(res, e, "Aluno matriculado.");
-}
-
-export async function classStudents(req, res) {
-  return ok(res, await adminService.classStudents(req.params.classId));
+export async function setStudentGroup(req, res) {
+  const groupId = optionalString(req.body.groupId, "groupId");
+  const r = await adminService.setStudentGroup(req.params.studentId, groupId);
+  await recordAudit({ actorUserId: req.user.id, action: "SET_GROUP", entity: "Student", entityId: req.params.studentId, details: { groupId } });
+  return ok(res, r, groupId ? "Aluno vinculado ao grupo." : "Aluno retirado do grupo.");
 }
 
 // ---- Grupos ----
 export async function createGroup(req, res) {
+  const studentIds = req.body.studentIds === undefined ? [] : req.body.studentIds;
+  if (!Array.isArray(studentIds) || studentIds.some(id => typeof id !== "string")) throw new HttpError(400, "studentIds deve ser uma lista.");
   const g = await adminService.createGroup({
     name: requireString(req.body.name, "name"),
-    classId: requireString(req.body.classId, "classId"),
-    description: optionalString(req.body.description, "description")
+    description: optionalString(req.body.description, "description"),
+    studentIds
   });
   await recordAudit({ actorUserId: req.user.id, action: "CREATE", entity: "StudentGroup", entityId: g.id });
   return created(res, g, "Grupo criado.");
 }
 
 export async function listGroups(req, res) {
-  return ok(res, await adminService.listGroups(req.query.classId));
+  return ok(res, await adminService.listGroups());
+}
+
+export async function renameGroup(req, res) {
+  const g = await adminService.renameGroup(req.params.id, requireString(req.body.name, "name"));
+  return ok(res, g, "Grupo renomeado.");
 }
 
 export async function addMember(req, res) {
@@ -82,6 +78,7 @@ export async function removeMember(req, res) {
 
 export async function deleteGroup(req, res) {
   const r = await adminService.deleteGroup(req.params.id);
+  await recordAudit({ actorUserId: req.user.id, action: "DELETE", entity: "StudentGroup", entityId: req.params.id });
   return ok(res, r, "Grupo removido.");
 }
 

@@ -79,6 +79,7 @@ const api = {
   rubricGet: (id) => request("GET", `/api/rubrics/${id}`),
   rubricCreate: (b) => request("POST", "/api/rubrics", b),
   rubricDuplicate: (id, b) => request("POST", `/api/rubrics/${id}/duplicate`, b),
+  rubricDelete: (id) => request("DELETE", `/api/rubrics/${id}`),
   criterionAdd: (versionId, b) => request("POST", `/api/rubrics/versions/${versionId}/criteria`, b),
   criterionDelete: (id) => request("DELETE", `/api/rubrics/criteria/${id}`),
   criterionSetActive: (id, active) => request("PATCH", `/api/rubrics/criteria/${id}/active`, { active }),
@@ -90,6 +91,7 @@ const api = {
   activityCreate: (b) => request("POST", "/api/activities", b),
   activityUpdate: (id, b) => request("PATCH", `/api/activities/${id}`, b),
   activitySetStatus: (id, status) => request("PATCH", `/api/activities/${id}/status`, { status }),
+  activityDelete: (id) => request("DELETE", `/api/activities/${id}`),
   // Student
   stActivities: () => request("GET", "/api/student/activities"),
   stActivity: (id) => request("GET", `/api/student/activities/${id}`),
@@ -117,12 +119,12 @@ const api = {
   // Admin - cadastros
   adCreateTeacher: (b) => request("POST", "/api/admin/teachers", b),
   adCreateStudent: (b) => request("POST", "/api/admin/students", b),
-  adAssignTeacher: (b) => request("POST", "/api/admin/class-subjects", b),
-  adEnroll: (classId, studentId) => request("POST", `/api/admin/classes/${classId}/enroll`, { studentId }),
-  adClassStudents: (classId) => request("GET", `/api/admin/classes/${classId}/students`),
+  adStudents: () => request("GET", "/api/admin/students"),
+  adSetStudentGroup: (studentId, groupId) => request("PUT", `/api/admin/students/${studentId}/group`, { groupId: groupId || null }),
   adListUsers: (role) => request("GET", `/api/admin/users${role ? "?role=" + role : ""}`),
   // Admin - grupos
-  adGroups: (classId) => request("GET", `/api/admin/groups${classId ? "?classId=" + classId : ""}`),
+  adGroups: () => request("GET", "/api/admin/groups"),
+  adRenameGroup: (id, name) => request("PATCH", `/api/admin/groups/${id}`, { name }),
   adCreateGroup: (b) => request("POST", "/api/admin/groups", b),
   adDeleteGroup: (id) => request("DELETE", `/api/admin/groups/${id}`),
   adAddMember: (id, studentId) => request("POST", `/api/admin/groups/${id}/members`, { studentId }),
