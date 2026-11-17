@@ -28,6 +28,12 @@ async function request(method, path, body) {
     renderApp();
     throw new ApiError(401, "Sessão expirada. Faça login novamente.");
   }
+  if (res.status === 403 && data?.code === "PASSWORD_CHANGE_REQUIRED" && Auth.isLogged) {
+    const u = Auth.user; u.mustChangePassword = true;
+    localStorage.setItem("user", JSON.stringify(u));
+    renderApp();
+    throw new ApiError(403, data.message);
+  }
   if (!res.ok) throw new ApiError(res.status, data?.message || "Erro na operação.", data);
   return data?.data;
 }
@@ -61,6 +67,12 @@ class ApiError extends Error { constructor(status, message, data) { super(messag
 
 const api = {
   login: (email, password) => request("POST", "/api/auth/login", { email, password }),
+  changePassword: (currentPassword, newPassword) => request("POST", "/api/auth/change-password", { currentPassword, newPassword }),
+  adResetPassword: (userId, password) => request("POST", `/api/admin/users/${userId}/reset-password`, { password }),
+  tDocOpen: (submissionId) => request("POST", `/api/teacher/submissions/${submissionId}/document-evaluation`),
+  tDocSave: (submissionId, b) => request("PUT", `/api/teacher/submissions/${submissionId}/document-evaluation`, b),
+  tPresList: (activityId) => request("GET", `/api/teacher/activities/${activityId}/presentation`),
+  tPresOpen: (b) => request("POST", "/api/teacher/presentation/open", b),
   me: () => request("GET", "/api/auth/me"),
   // Admin - rubricas
   rubricsList: () => request("GET", "/api/rubrics"),

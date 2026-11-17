@@ -15,7 +15,7 @@ async function createUserWithRole(role, { name, email, password }) {
   if (exists) throw new HttpError(409, "Já existe um usuário com este e-mail.");
 
   const passwordHash = await bcrypt.hash(password, 12);
-  return prisma.user.create({ data: { name: name.trim(), email: normalized, passwordHash, role } });
+  return prisma.user.create({ data: { name: name.trim(), email: normalized, passwordHash, role, mustChangePassword: true } });
 }
 
 // ---- Professores ----
@@ -36,7 +36,7 @@ export async function listUsers(role) {
   const where = role ? { role } : {};
   return prisma.user.findMany({
     where, orderBy: { name: "asc" },
-    select: { id: true, name: true, email: true, role: true, active: true,
+    select: { id: true, name: true, email: true, role: true, active: true, mustChangePassword: true,
       teacher: { select: { id: true } }, student: { select: { id: true } } }
   });
 }
@@ -133,4 +133,15 @@ export async function deleteGroup(id) {
   await getGroup(id);
   await prisma.studentGroup.delete({ where: { id } });
   return { id };
+}
+
+// ---- Redefinir senha provisória (o usuário deverá trocá-la no próximo acesso) ----
+export async function resetPassword(userId, password) {
+  if (!password || password.length < 8) throw new HttpError(400, "A senha provisória deve ter ao menos 8 caracteres.");
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new HttpError(404, "Usuário não encontrado.");
+  if (user.role === "ADMIN") throw new HttpError(403, "Não é possível redefinir a senha de um administrador por aqui.");
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: true } });
+  return { id: userId, mustChangePassword: true };
 }

@@ -153,11 +153,18 @@ export async function reopenForResubmission(submission) {
 export async function getFileForOwner(studentId, fileId) {
   const file = await prisma.submissionFile.findUnique({
     where: { id: fileId },
-    include: { version: { include: { submission: { select: { studentId: true } } } } }
+    include: { version: { include: { submission: { select: { studentId: true, groupId: true } } } } }
   });
-  if (!file || file.version.submission.studentId !== studentId) {
-    throw new HttpError(404, "Arquivo não encontrado.");
+  if (!file) throw new HttpError(404, "Arquivo não encontrado.");
+  const sub = file.version.submission;
+  let allowed = sub.studentId === studentId;
+  if (!allowed && sub.groupId) {
+    const member = await prisma.groupMember.findUnique({
+      where: { groupId_studentId: { groupId: sub.groupId, studentId } }
+    });
+    allowed = !!member;
   }
+  if (!allowed) throw new HttpError(404, "Arquivo não encontrado.");
   return file;
 }
 

@@ -1,6 +1,6 @@
 
 import prisma from "../config/database.js";
-import { authenticateUser } from "../services/authService.js";
+import { authenticateUser, changePassword as changePasswordService } from "../services/authService.js";
 
 // Realizar login
 export async function login(req, res) {
@@ -57,6 +57,7 @@ export async function getProfile(req, res) {
         email: true,
         role: true,
         active: true,
+        mustChangePassword: true,
         createdAt: true
       }
     });
@@ -80,5 +81,19 @@ export async function getProfile(req, res) {
       success: false,
       message: "Não foi possível consultar o perfil."
     });
+  }
+}
+
+// Trocar a própria senha (obrigatório no primeiro acesso com senha provisória)
+export async function changePassword(req, res, next) {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (typeof currentPassword !== "string" || typeof newPassword !== "string") {
+      return res.status(400).json({ success: false, message: "Informe a senha atual e a nova senha." });
+    }
+    const result = await changePasswordService(req.user.id, currentPassword, newPassword);
+    return res.status(200).json({ success: true, message: "Senha alterada com sucesso.", data: result });
+  } catch (error) {
+    return next(error);
   }
 }

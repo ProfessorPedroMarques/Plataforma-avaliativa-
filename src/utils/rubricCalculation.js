@@ -5,31 +5,30 @@
 // Toda pontuação final da plataforma DEVE passar por esta função.
 // Não crie fórmulas paralelas em controllers/services: importe daqui.
 //
-// Modelo: cada critério tem uma pontuação atribuída (score, 0..maxPoints)
-// e um peso (weight). A nota final é a média ponderada normalizada para
-// o totalPoints da versão da rubrica.
+// Regra (definida pela coordenação):
+//   • Critérios de DOCUMENTO  (scope = GROUP)      → NOTA DO GRUPO
+//       notaGrupo      = Σ (nota_i × peso_i)   dos critérios de documento
+//   • Critérios de APRESENTAÇÃO (scope = INDIVIDUAL) → nota da apresentação
+//       notaApresent.  = Σ (nota_i × peso_i)   dos critérios de apresentação
+//   • NOTA INDIVIDUAL FINAL do aluno = notaGrupo + notaApresentação
 //
-//   final = ( Σ(score_i * weight_i) / Σ(maxPoints_i * weight_i) ) * totalPoints
-//
-// Isso respeita simultaneamente pesos, pontuação máxima por critério e a
-// pontuação total definida pelo ADMIN na versão da rubrica.
+// Com peso 1 (padrão), é a soma simples das notas lançadas.
 // =====================================================================
 
 function toNumber(value) {
   if (value === null || value === undefined) return 0;
-  // Suporta Prisma.Decimal, string e number.
   const n = typeof value === "object" && typeof value.toNumber === "function"
     ? value.toNumber()
     : Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
-// Valida uma pontuação individual contra o máximo do critério.
-// Retorna { valid, message }.
-export function validateCriterionScore(score, maxPoints) {
-  const s = toNumber(score);
-  const max = toNumber(maxPoints);
+const round2 = (n) => Number(n.toFixed(2));
 
+// Valida uma pontuação individual contra o máximo do critério.
+export function validateCriterionScore(score, maxPoints) {
+  const s = Number(score);
+  const max = toNumber(maxPoints);
   if (!Number.isFinite(s) || s < 0) {
     return { valid: false, message: "Pontuação não pode ser negativa ou inválida." };
   }
@@ -39,55 +38,41 @@ export function validateCriterionScore(score, maxPoints) {
   return { valid: true };
 }
 
-// criteria: [{ id, weight, maxPoints, required }]
-// scores:   Map/obj { [criterionId]: score }
-// totalPoints: pontuação total da versão da rubrica
-//
-// Retorna { finalScore, maxScore, rawWeighted, maxWeighted, breakdown[] }
-export function calculateResult({ criteria, scores, totalPoints }) {
-  const total = toNumber(totalPoints) || 0;
-
-  let rawWeighted = 0;
-  let maxWeighted = 0;
+// criteria: [{ id, weight, maxPoints, scope }]  (scope: "GROUP" | "INDIVIDUAL"; ausente = GROUP)
+// scores:   { [criterionId]: score }
+// (totalPoints é aceito por compatibilidade, mas não é usado: a nota é soma.)
+export function calculateResult({ criteria, scores }) {
+  let groupScore = 0, groupMax = 0, individualScore = 0, individualMax = 0;
   const breakdown = [];
 
   for (const c of criteria) {
-    const weight = toNumber(c.weight);
+    const weight = toNumber(c.weight) || 1;
     const max = toNumber(c.maxPoints);
-    const rawScore = scores[c.id];
-    const score = toNumber(rawScore);
+    const score = toNumber(scores[c.id]);
+    const isIndividual = c.scope === "INDIVIDUAL";
 
-    rawWeighted += score * weight;
-    maxWeighted += max * weight;
+    if (isIndividual) { individualScore += score * weight; individualMax += max * weight; }
+    else { groupScore += score * weight; groupMax += max * weight; }
 
-    breakdown.push({
-      criterionId: c.id,
-      score,
-      maxPoints: max,
-      weight
-    });
+    breakdown.push({ criterionId: c.id, scope: isIndividual ? "INDIVIDUAL" : "GROUP", score, maxPoints: max, weight });
   }
 
-  const finalScore = maxWeighted > 0
-    ? Number(((rawWeighted / maxWeighted) * total).toFixed(2))
-    : 0;
-
   return {
-    finalScore,
-    maxScore: Number(total.toFixed(2)),
-    rawWeighted: Number(rawWeighted.toFixed(2)),
-    maxWeighted: Number(maxWeighted.toFixed(2)),
+    groupScore: round2(groupScore),
+    groupMax: round2(groupMax),
+    individualScore: round2(individualScore),
+    individualMax: round2(individualMax),
+    finalScore: round2(groupScore + individualScore),
+    maxScore: round2(groupMax + individualMax),
     breakdown
   };
 }
 
 // Garante que todos os critérios obrigatórios foram pontuados.
-// criteria: [{ id, required, title }]; scores: obj { [criterionId]: score }
 export function validateRequiredCriteria(criteria, scores) {
   const missing = criteria
     .filter(c => c.required)
     .filter(c => scores[c.id] === undefined || scores[c.id] === null || scores[c.id] === "")
     .map(c => c.title || c.id);
-
   return { valid: missing.length === 0, missing };
 }

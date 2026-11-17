@@ -84,3 +84,9 @@ export async function deleteGroup(req, res) {
   const r = await adminService.deleteGroup(req.params.id);
   return ok(res, r, "Grupo removido.");
 }
+
+export async function resetPassword(req, res) {
+  const r = await adminService.resetPassword(req.params.id, requireString(req.body.password, "password"));
+  await recordAudit({ actorUserId: req.user.id, action: "RESET_PASSWORD", entity: "User", entityId: req.params.id });
+  return ok(res, r, "Senha provisória redefinida. O usuário deverá trocá-la no próximo acesso.");
+}

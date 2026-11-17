@@ -1,4 +1,5 @@
 
+import * as teacherService from "../services/teacherService.js";
 import * as activityService from "../services/activityService.js";
 import { recordAudit } from "../services/auditService.js";
 import {
@@ -55,7 +56,14 @@ export async function create(req, res) {
 
 export async function list(req, res) {
   const { classId, teacherId, status } = req.query;
-  return ok(res, await activityService.listActivities({ classId, teacherId, status }));
+  const activities = await activityService.listActivities({ classId, teacherId, status });
+  // Professor enxerga apenas as atividades das suas turmas (ou em que é responsável).
+  if (req.user.role === "TEACHER") {
+    const teacher = await teacherService.getTeacherByUser(req.user.id);
+    const allowed = new Set(await teacherService.allowedActivityIds(teacher));
+    return ok(res, activities.filter(a => allowed.has(a.id)));
+  }
+  return ok(res, activities);
 }
 
 export async function getById(req, res) {

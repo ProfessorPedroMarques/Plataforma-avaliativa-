@@ -14,6 +14,7 @@ router.get("/users", asyncHandler(c.listUsers));
 router.post("/teachers", asyncHandler(c.createTeacher));
 router.post("/students", asyncHandler(c.createStudent));
 router.post("/class-subjects", asyncHandler(c.assignTeacher));
+router.post("/users/:id/reset-password", asyncHandler(c.resetPassword));
 
 // Matrícula e alunos da turma
 router.post("/classes/:classId/enroll", asyncHandler(c.enroll));

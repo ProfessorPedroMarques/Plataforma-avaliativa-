@@ -1,5 +1,6 @@
 
 import prisma from "../config/database.js";
+import { calculateResult } from "../utils/rubricCalculation.js";
 import { HttpError } from "../utils/http.js";
 
 // Resolve o registro Student a partir do userId autenticado.
@@ -18,6 +19,21 @@ async function enrolledClassIds(studentId) {
   return enrollments.map(e => e.classId);
 }
 
+// Grupos do estudante (com a turma de cada um).
+export async function studentGroups(studentId) {
+  const memberships = await prisma.groupMember.findMany({
+    where: { studentId },
+    include: { group: { select: { id: true, name: true, classId: true } } }
+  });
+  return memberships.map(m => m.group);
+}
+
+// Grupo do estudante na turma da atividade (para atividades em equipe).
+async function groupForActivity(studentId, activity) {
+  const groups = await studentGroups(studentId);
+  return groups.find(g => g.classId === activity.classId) || null;
+}
+
 // Atividades disponíveis para o estudante (das suas turmas, não-rascunho).
 export async function listAvailableActivities(studentId) {
   const classIds = await enrolledClassIds(studentId);
@@ -32,15 +48,22 @@ export async function listAvailableActivities(studentId) {
     }
   });
 
-  // Anexa a entrega do próprio aluno (se houver) a cada atividade.
+  const groups = await studentGroups(studentId);
+  const groupIds = groups.map(g => g.id);
+
+  // Entregas do aluno (individuais) e do(s) grupo(s) dele.
   const subs = await prisma.submission.findMany({
-    where: { studentId, activityId: { in: activities.map(a => a.id) } },
-    select: { id: true, activityId: true, status: true, submittedAt: true }
+    where: {
+      activityId: { in: activities.map(a => a.id) },
+      OR: [{ studentId }, ...(groupIds.length ? [{ groupId: { in: groupIds } }] : [])]
+    },
+    select: { id: true, activityId: true, status: true, submittedAt: true, groupId: true }
   });
   const byActivity = new Map(subs.map(s => [s.activityId, s]));
 
   return activities.map(a => ({
     ...a,
+    myGroup: a.mode === "GROUP" ? (groups.find(g => g.classId === a.classId) || null) : null,
     mySubmission: byActivity.get(a.id) || null,
     windowOpen: isWindowOpen(a)
   }));
@@ -67,7 +90,8 @@ export async function getAvailableActivity(studentId, activityId) {
   if (!activity || !classIds.includes(activity.classId) || activity.status === "DRAFT") {
     throw new HttpError(404, "Atividade não encontrada ou indisponível.");
   }
-  return { ...activity, windowOpen: isWindowOpen(activity) };
+  const myGroup = activity.mode === "GROUP" ? await groupForActivity(studentId, activity) : null;
+  return { ...activity, myGroup, windowOpen: isWindowOpen(activity) };
 }
 
 // Garante que a atividade pertence ao aluno e devolve-a (para validações de envio).
@@ -86,27 +110,43 @@ const submissionInclude = {
     orderBy: { versionNumber: "asc" },
     include: { files: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true } } }
   },
-  history: { orderBy: { createdAt: "asc" } }
+  history: { orderBy: { createdAt: "asc" } },
+  group: { select: { id: true, name: true } }
 };
 
 export async function listMySubmissions(studentId) {
+  const groupIds = (await studentGroups(studentId)).map(g => g.id);
   return prisma.submission.findMany({
-    where: { studentId },
+    where: { OR: [{ studentId }, ...(groupIds.length ? [{ groupId: { in: groupIds } }] : [])] },
     orderBy: { updatedAt: "desc" },
     include: {
       activity: { select: { id: true, title: true, dueDate: true } },
+      group: { select: { id: true, name: true } },
       versions: { select: { id: true, versionNumber: true, _count: { select: { files: true } } } }
     }
   });
 }
 
-// Busca entrega garantindo que pertence ao estudante.
+// O aluno pode acessar a entrega se ela for dele ou do grupo do qual participa.
+export async function canAccessSubmission(studentId, submission) {
+  if (!submission) return false;
+  if (submission.studentId && submission.studentId === studentId) return true;
+  if (submission.groupId) {
+    const member = await prisma.groupMember.findUnique({
+      where: { groupId_studentId: { groupId: submission.groupId, studentId } }
+    });
+    return !!member;
+  }
+  return false;
+}
+
+// Busca entrega garantindo que pertence ao estudante (ou ao seu grupo).
 export async function getOwnedSubmission(studentId, submissionId, full = true) {
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
     include: full ? submissionInclude : undefined
   });
-  if (!submission || submission.studentId !== studentId) {
+  if (!(await canAccessSubmission(studentId, submission))) {
     throw new HttpError(404, "Entrega não encontrada.");
   }
   return submission;
@@ -114,13 +154,27 @@ export async function getOwnedSubmission(studentId, submissionId, full = true) {
 
 export async function createSubmission(studentId, { activityId, title, description }) {
   const activity = await assertActivityForStudent(studentId, activityId);
-  if (activity.mode !== "INDIVIDUAL") {
-    throw new HttpError(409, "Esta atividade é em equipe; a entrega individual não se aplica.");
+
+  // Atividade em equipe: a entrega pertence ao GRUPO (qualquer integrante pode iniciar/enviar).
+  if (activity.mode === "GROUP") {
+    const group = await groupForActivity(studentId, activity);
+    if (!group) throw new HttpError(409, "Você ainda não está em um grupo desta turma. Procure o administrador.");
+    const existing = await prisma.submission.findFirst({ where: { activityId, groupId: group.id }, include: submissionInclude });
+    if (existing) return existing; // já iniciada por outro integrante: reaproveita
+    return prisma.submission.create({
+      data: {
+        activityId, groupId: group.id, title, description,
+        status: "NOT_STARTED",
+        history: { create: { status: "NOT_STARTED", note: "Entrega do grupo iniciada.", changedById: studentId } }
+      },
+      include: submissionInclude
+    });
   }
+
   const existing = await prisma.submission.findFirst({ where: { activityId, studentId } });
   if (existing) throw new HttpError(409, "Você já possui uma entrega para esta atividade.");
 
-  const submission = await prisma.submission.create({
+  return prisma.submission.create({
     data: {
       activityId, studentId, title, description,
       status: "NOT_STARTED",
@@ -128,32 +182,55 @@ export async function createSubmission(studentId, { activityId, title, descripti
     },
     include: submissionInclude
   });
-  return submission;
 }
 
 // ================= ETAPA 9: MINHAS NOTAS =================
 
 const PUBLISHED_STATES = ["PUBLISHED", "REVISED"];
 
-// Lista apenas resultados PUBLICADOS do próprio aluno.
+// Calcula a divisão da nota (grupo/documentos × apresentação) pela fonte única de cálculo.
+async function breakdownFor(result) {
+  const criteria = await prisma.criterion.findMany({
+    where: { rubricVersionId: result.evaluation.rubricVersionId, active: true },
+    orderBy: { position: "asc" }
+  });
+  const scores = {};
+  for (const cs of result.criterionScores) scores[cs.criterionId] = Number(cs.score);
+  const calc = calculateResult({
+    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints, scope: c.scope })),
+    scores
+  });
+  return { criteria, calc };
+}
+
+// Lista apenas resultados PUBLICADOS do próprio aluno, com a composição da nota.
 export async function listPublishedGrades(studentId) {
   const results = await prisma.evaluationResult.findMany({
     where: { studentId, status: { in: PUBLISHED_STATES } },
     orderBy: { publishedAt: "desc" },
     include: {
-      evaluation: { select: { title: true, activity: { select: { id: true, title: true } } } },
-      submission: { select: { id: true, title: true } }
+      evaluation: { select: { title: true, rubricVersionId: true, activity: { select: { id: true, title: true } } } },
+      submission: { select: { id: true, title: true } },
+      group: { select: { id: true, name: true } },
+      criterionScores: true
     }
   });
-  return results.map(r => ({
-    resultId: r.id,
-    activity: r.evaluation.activity ? { id: r.evaluation.activity.id, title: r.evaluation.activity.title } : null,
-    projectTitle: r.submission?.title || null,
-    finalScore: r.score !== null ? Number(r.score) : null,
-    maxScore: Number(r.maxScore),
-    status: r.status,
-    publishedAt: r.publishedAt
-  }));
+  const out = [];
+  for (const r of results) {
+    const { calc } = await breakdownFor(r);
+    out.push({
+      resultId: r.id,
+      activity: r.evaluation.activity ? { id: r.evaluation.activity.id, title: r.evaluation.activity.title } : null,
+      projectTitle: r.submission?.title || null,
+      group: r.group ? { id: r.group.id, name: r.group.name } : null,
+      groupScore: calc.groupScore, groupMax: calc.groupMax,
+      presentationScore: calc.individualScore, presentationMax: calc.individualMax,
+      finalScore: calc.finalScore, maxScore: calc.maxScore,
+      status: r.status,
+      publishedAt: r.publishedAt
+    });
+  }
+  return out;
 }
 
 // Detalhe de uma nota PUBLICADA do próprio aluno (critérios do ADMIN + pontuação do professor).
@@ -163,8 +240,9 @@ export async function getPublishedGradeDetail(studentId, resultId) {
     include: {
       evaluation: { select: { title: true, rubricVersionId: true, activity: { select: { id: true, title: true } } } },
       submission: { select: { id: true, title: true } },
+      group: { select: { id: true, name: true } },
       criterionScores: true,
-      feedbacks: { where: { type: "FINAL" }, take: 1, orderBy: { createdAt: "desc" } }
+      feedbacks: { where: { type: { in: ["FINAL", "GENERAL"] } }, orderBy: { createdAt: "desc" } }
     }
   });
 
@@ -173,30 +251,33 @@ export async function getPublishedGradeDetail(studentId, resultId) {
     throw new HttpError(404, "Nota não encontrada ou ainda não publicada.");
   }
 
-  const criteria = await prisma.criterion.findMany({
-    where: { rubricVersionId: result.evaluation.rubricVersionId, active: true },
-    orderBy: { position: "asc" }
-  });
+  const { criteria, calc } = await breakdownFor(result);
   const scoreByCriterion = new Map(result.criterionScores.map(cs => [cs.criterionId, cs]));
+  const mapCrit = c => {
+    const cs = scoreByCriterion.get(c.id);
+    return {
+      title: c.title, description: c.description,
+      maxPoints: Number(c.maxPoints), weight: Number(c.weight),
+      score: cs ? Number(cs.score) : null, comment: cs?.comment || null
+    };
+  };
 
   return {
     resultId: result.id,
     activity: result.evaluation.activity,
     projectTitle: result.submission?.title || null,
-    finalScore: result.score !== null ? Number(result.score) : null,
-    maxScore: Number(result.maxScore),
+    group: result.group ? { id: result.group.id, name: result.group.name } : null,
+    groupScore: calc.groupScore, groupMax: calc.groupMax,
+    presentationScore: calc.individualScore, presentationMax: calc.individualMax,
+    finalScore: calc.finalScore, maxScore: calc.maxScore,
     status: result.status,
     publishedAt: result.publishedAt,
     evaluatedAt: result.finalizedAt,
-    generalFeedback: result.feedbacks?.[0]?.content || null,
-    criteria: criteria.map(c => {
-      const cs = scoreByCriterion.get(c.id);
-      return {
-        title: c.title, description: c.description,
-        maxPoints: Number(c.maxPoints), weight: Number(c.weight),
-        score: cs ? Number(cs.score) : null, comment: cs?.comment || null
-      };
-    })
+    documentFeedback: result.feedbacks.find(f => f.type === "GENERAL")?.content || null,
+    generalFeedback: result.feedbacks.find(f => f.type === "FINAL")?.content || null,
+    documentCriteria: criteria.filter(c => c.scope !== "INDIVIDUAL").map(mapCrit),
+    presentationCriteria: criteria.filter(c => c.scope === "INDIVIDUAL").map(mapCrit),
+    criteria: criteria.map(mapCrit)
   };
 }
 

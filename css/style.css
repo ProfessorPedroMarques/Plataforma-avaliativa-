@@ -119,3 +119,24 @@ textarea{resize:vertical;min-height:70px}
 .spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:var(--cyan);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .footer{text-align:center;color:var(--muted);font-size:12px;margin-top:40px}
+
+/* ===== Composição da nota: grupo + apresentação = final ===== */
+.scorebox{display:flex;align-items:stretch;gap:8px;margin:12px 0;flex-wrap:wrap}
+.scorebox .sb{flex:1;min-width:140px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.scorebox .sb.final{border-color:var(--green);background:rgba(39,229,155,.08)}
+.scorebox .sb-l{font-size:13px;color:var(--muted);line-height:1.3}
+.scorebox .sb-l small{font-size:11px}
+.scorebox .sb-v{font-size:24px;font-weight:800;color:var(--cyan);white-space:nowrap}
+.scorebox .sb.final .sb-v{color:var(--green)}
+.scorebox .sb-v small{font-size:13px;color:var(--muted);font-weight:600}
+.scorebox .sb-op{display:grid;place-items:center;font-size:22px;font-weight:800;color:var(--muted)}
+@media(max-width:720px){.scorebox .sb-op{display:none}}
+.grade-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;background:rgba(10,18,38,.5)}
+.grade-card .gc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.grade-card .title{font-weight:700}
+.grade-card .sub{font-size:13px;color:var(--muted);margin-top:2px}
+.sec-h{margin:16px 0 8px;color:var(--cyan);font-size:15px}
+.score-inline{color:var(--green);font-size:18px}
+.card h3{gap:8px}
+.header-right .btn-logout+.btn-logout{margin-left:-4px}
+@media(max-width:720px){.header{flex-wrap:wrap;gap:8px}.header-right{flex-wrap:wrap;gap:8px}}

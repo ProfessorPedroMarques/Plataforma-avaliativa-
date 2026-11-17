@@ -8,7 +8,7 @@ import {
   calculateResult, validateCriterionScore, validateRequiredCriteria
 } from "../utils/rubricCalculation.js";
 
-function deriveState(result) {
+export function deriveState(result) {
   if (!result) return "NOT_STARTED";
   if (result.status === "PUBLISHED" || result.status === "REVISED") return "PUBLISHED";
   if (result.finalizedAt) return "CONCLUDED";
@@ -17,12 +17,12 @@ function deriveState(result) {
 }
 
 // Recalcula a nota de um resultado a partir das pontuações salvas (critérios do grupo + individuais).
-async function recompute(tx, resultId, allCriteria, totalPoints) {
+export async function recompute(tx, resultId, allCriteria, totalPoints) {
   const scores = await tx.criterionScore.findMany({ where: { resultId } });
   const map = {};
   for (const cs of scores) map[cs.criterionId] = Number(cs.score);
   const calc = calculateResult({
-    criteria: allCriteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints })),
+    criteria: allCriteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints, scope: c.scope })),
     scores: map, totalPoints
   });
   await tx.evaluationResult.update({ where: { id: resultId }, data: { score: calc.finalScore, maxScore: calc.maxScore } });
