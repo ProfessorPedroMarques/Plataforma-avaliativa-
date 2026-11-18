@@ -87,3 +87,7 @@ export async function resetPassword(req, res) {
   await recordAudit({ actorUserId: req.user.id, action: "RESET_PASSWORD", entity: "User", entityId: req.params.id });
   return ok(res, r, "Senha provisória redefinida. O usuário deverá trocá-la no próximo acesso.");
 }
+
+export async function overview(req, res) {
+  return ok(res, await adminService.overview());
+}

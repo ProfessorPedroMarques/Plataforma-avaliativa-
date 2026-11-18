@@ -133,6 +133,7 @@ const api = {
   adCreateTeacher: (b) => request("POST", "/api/admin/teachers", b),
   adCreateStudent: (b) => request("POST", "/api/admin/students", b),
   adStudents: () => request("GET", "/api/admin/students"),
+  adOverview: () => request("GET", "/api/admin/overview"),
   adSetStudentGroup: (studentId, groupId) => request("PUT", `/api/admin/students/${studentId}/group`, { groupId: groupId || null }),
   adListUsers: (role) => request("GET", `/api/admin/users${role ? "?role=" + role : ""}`),
   // Admin - grupos

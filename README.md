@@ -53,3 +53,9 @@ Todos os alunos pertencem à mesma turma e à mesma matéria: **Desenvolvimento 
 Critérios dos documentos podem ser incluídos e excluídos até o primeiro lançamento de nota. Critérios da apresentação já usados não mudam de pontuação nem de peso; ao serem excluídos saem das telas, mas as notas já dadas continuam valendo. Notas publicadas ficam congeladas; alterá-las exige justificativa (registrada no histórico).
 
 **Cálculo:** nota do grupo = soma das notas dos critérios dos documentos · nota individual da apresentação = soma de (nota × peso) dos critérios da apresentação (média da banca) · **nota final = grupo + apresentação**.
+
+## Identidade visual (PEI Ary Gomes)
+- **Logo oficial:** `img/logo-pei-ary-gomes.jpg` (arquivo original, intacto). Versões de exibição geradas a partir dele: `img/logo-pei-ary-gomes-tela.png` (sem a linha cinza de digitalização na borda inferior), `img/simbolo-pei-ary-gomes.png` (círculo com a lâmpada, usado no menu recolhido) e `img/favicon.png`.
+- **Paleta (extraída da logo):** amarelo `#F0A830` (ações principais e destaques), roxo `#3A2160` / `#2C184A` (títulos, menu lateral), azul `#D8F0F8` / `#3C93C4` (informações complementares), neutros de `#FFFFFF` a `#1B1722`; estados: sucesso `#1C7C4F`, alerta `#9A6200`, erro `#B42332`.
+- **Tipografia:** IBM Plex Sans (Google Fonts, com fonte do sistema como alternativa).
+- **Design System:** todas as variáveis e componentes ficam em `css/style.css` (botões, campos, tabelas, badges de status, alertas, modais, notificações, indicadores, estados vazios e de carregamento). Ícones SVG de traço único (Lucide, licença ISC) embutidos em `js/app.js`.
