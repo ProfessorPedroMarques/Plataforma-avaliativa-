@@ -31,7 +31,8 @@ export async function studentGroups(studentId) {
 // Grupo do estudante na turma da atividade (para atividades em equipe).
 async function groupForActivity(studentId, activity) {
   const groups = await studentGroups(studentId);
-  return groups.find(g => g.classId === activity.classId) || null;
+  // Curso de turma única: vale o grupo da turma da atividade ou, na falta, o grupo do aluno.
+  return groups.find(g => g.classId === activity.classId) || groups[0] || null;
 }
 
 // Atividades disponíveis para o estudante (das suas turmas, não-rascunho).
@@ -63,7 +64,7 @@ export async function listAvailableActivities(studentId) {
 
   return activities.map(a => ({
     ...a,
-    myGroup: a.mode === "GROUP" ? (groups.find(g => g.classId === a.classId) || null) : null,
+    myGroup: a.mode === "GROUP" ? (groups.find(g => g.classId === a.classId) || groups[0] || null) : null,
     mySubmission: byActivity.get(a.id) || null,
     windowOpen: isWindowOpen(a)
   }));
@@ -158,7 +159,7 @@ export async function createSubmission(studentId, { activityId, title, descripti
   // Atividade em equipe: a entrega pertence ao GRUPO (qualquer integrante pode iniciar/enviar).
   if (activity.mode === "GROUP") {
     const group = await groupForActivity(studentId, activity);
-    if (!group) throw new HttpError(409, "Você ainda não está em um grupo desta turma. Procure o administrador.");
+    if (!group) throw new HttpError(409, "Você ainda não está em um grupo. Peça ao administrador para incluí-lo (Admin › Grupos).");
     const existing = await prisma.submission.findFirst({ where: { activityId, groupId: group.id }, include: submissionInclude });
     if (existing) return existing; // já iniciada por outro integrante: reaproveita
     return prisma.submission.create({
