@@ -12,7 +12,7 @@ import prisma from "../config/database.js";
 import { HttpError } from "../utils/http.js";
 import { allowedActivityIds } from "./teacherService.js";
 import { assertActivityAllowed, getOrCreateEvaluation, getActiveCriteria } from "./evaluationService.js";
-import { deriveState, recompute, saveIndividualScores } from "./groupEvaluationService.js";
+import { recompute } from "./groupEvaluationService.js";
 import { calculateResult, validateCriterionScore } from "../utils/rubricCalculation.js";
 
 const isEmpty = v => v === null || v === undefined || v === "";
@@ -78,17 +78,6 @@ async function ensureResult(evaluationId, studentId, { groupId, submissionId }) 
     data: { evaluationId, studentId, groupId: groupId || null, submissionId: submissionId || null, maxScore: 0, status: "DRAFT" },
     include: { criterionScores: true, feedbacks: true }
   });
-}
-
-// Conclusão automática: o resultado fica "concluído" (pronto para publicar) quando
-// todos os critérios obrigatórios (documentos + apresentação) têm nota.
-async function autoConclude(tx, resultId, criteria) {
-  const r = await tx.evaluationResult.findUnique({ where: { id: resultId }, include: { criterionScores: true } });
-  if (!r || r.status !== "DRAFT") return;
-  const scored = new Set(r.criterionScores.map(cs => cs.criterionId));
-  const complete = criteria.filter(c => c.required).every(c => scored.has(c.id));
-  if (complete && !r.finalizedAt) await tx.evaluationResult.update({ where: { id: resultId }, data: { finalizedAt: new Date() } });
-  if (!complete && r.finalizedAt) await tx.evaluationResult.update({ where: { id: resultId }, data: { finalizedAt: null } });
 }
 
 // ---------------- 1) AVALIAÇÃO DOS DOCUMENTOS ----------------
@@ -174,8 +163,7 @@ export async function saveDocumentScores(teacher, submissionId, { scores, feedba
         await tx.feedback.deleteMany({ where: { resultId: r.id, type: "GENERAL" } });
         if (feedback) await tx.feedback.create({ data: { resultId: r.id, authorId: teacher.userId, type: "GENERAL", content: feedback } });
       }
-      await recompute(tx, r.id, criteria);
-      await autoConclude(tx, r.id, criteria);
+      await recompute(tx, r.id);
     }
     // Professor avaliou um envio que o aluno não confirmou: o envio passa a "em avaliação".
     if (["NOT_STARTED", "IN_PROGRESS"].includes(submission.status)) {
@@ -191,113 +179,7 @@ export async function saveDocumentScores(teacher, submissionId, { scores, feedba
 }
 
 // ---------------- 2) AVALIAÇÃO DA APRESENTAÇÃO ----------------
-
-// Lista os alunos da atividade com o andamento das duas etapas.
-export async function listPresentationStudents(teacher, activityId) {
-  const activity = await assertActivityAllowed(teacher, activityId, "presentation");
-  if (!activity.rubricVersionId) throw new HttpError(409, "A atividade não possui rubrica vinculada. Configure no ADMIN.");
-  const criteria = await getActiveCriteria(activity.rubricVersionId);
-  const enrollments = await prisma.enrollment.findMany({
-    where: { classId: activity.classId, status: "ACTIVE" },
-    include: { student: { select: { id: true, user: { select: { name: true } } } } },
-    orderBy: { student: { user: { name: "asc" } } }
-  });
-  const groups = await prisma.studentGroup.findMany({
-    where: { classId: activity.classId },
-    include: { members: { select: { studentId: true } } }
-  });
-  const evaluation = await prisma.evaluation.findUnique({ where: { activityId } });
-  const results = evaluation
-    ? await prisma.evaluationResult.findMany({ where: { evaluationId: evaluation.id }, include: { criterionScores: true, feedbacks: { where: { type: "FINAL" } } } })
-    : [];
-  const byStudent = new Map(results.map(r => [r.studentId, r]));
-  const docIds = new Set(criteria.filter(c => c.scope !== "INDIVIDUAL").map(c => c.id));
-
-  return enrollments.map(e => {
-    const g = groups.find(gr => gr.members.some(m => m.studentId === e.student.id));
-    const r = byStudent.get(e.student.id);
-    const calc = calcFor(criteria, r?.criterionScores);
-    return {
-      student: { id: e.student.id, name: e.student.user.name },
-      group: activity.mode === "GROUP" && g ? { id: g.id, name: g.name } : null,
-      documentsEvaluated: !!r && r.criterionScores.some(cs => docIds.has(cs.criterionId)),
-      groupScore: calc.groupScore, presentationScore: calc.individualScore, finalScore: calc.finalScore,
-      resultId: r?.id || null,
-      state: deriveState(r),
-      status: r?.status || null,
-      presentationScores: Object.fromEntries((r?.criterionScores || []).filter(cs => !docIds.has(cs.criterionId)).map(cs => [cs.criterionId, { score: Number(cs.score), comment: cs.comment }])),
-      feedback: r?.feedbacks?.[0]?.content || null
-    };
-  });
-}
-
-// Planilha de avaliação da apresentação: critérios + alunos (por grupo) com as notas já lançadas.
-export async function presentationSheet(teacher, activityId) {
-  const activity = await assertActivityAllowed(teacher, activityId, "presentation");
-  if (!activity.rubricVersionId) throw new HttpError(409, "A atividade não possui critérios. Peça ao administrador para cadastrá-los.");
-  const criteria = await getActiveCriteria(activity.rubricVersionId);
-  const presentationCriteria = criteria.filter(c => c.scope === "INDIVIDUAL").map(c => critDto(c));
-  const documentMax = criteria.filter(c => c.scope !== "INDIVIDUAL").reduce((s, c) => s + Number(c.maxPoints) * Number(c.weight), 0);
-  const students = await listPresentationStudents(teacher, activityId);
-  return { activity: { id: activity.id, title: activity.title, mode: activity.mode }, presentationCriteria, documentMax, students };
-}
-
-// Lança/atualiza as notas da apresentação de UM aluno (sem etapas de "rascunho/concluir").
-// A avaliação é concluída automaticamente quando todos os critérios obrigatórios têm nota.
-export async function savePresentationScores(teacher, activityId, studentId, { scores, feedback }) {
-  const ctx = await openPresentationEvaluation(teacher, activityId, studentId);
-  if (ctx.status === "PUBLISHED" || ctx.status === "REVISED") {
-    throw new HttpError(409, `A nota de ${ctx.student.name} já foi publicada. Use "Revisar" para alterá-la.`);
-  }
-  await saveIndividualScores(teacher, ctx.resultId, { scores, generalFeedback: feedback });
-  const activity = await prisma.activity.findUnique({ where: { id: activityId }, select: { rubricVersionId: true } });
-  const criteria = await getActiveCriteria(activity.rubricVersionId);
-  await prisma.$transaction(async (tx) => { await autoConclude(tx, ctx.resultId, criteria); });
-  const list = await listPresentationStudents(teacher, activityId);
-  return list.find(s => s.student.id === studentId);
-}
-
-export async function openPresentationEvaluation(teacher, activityId, studentId) {
-  const activity = await assertActivityAllowed(teacher, activityId, "presentation");
-  if (!activity.rubricVersionId) throw new HttpError(409, "A atividade não possui rubrica vinculada. Configure no ADMIN.");
-  const evaluation = await getOrCreateEvaluation(teacher, activity);
-
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
-    include: { user: { select: { name: true } }, enrollments: { where: { classId: activity.classId, status: "ACTIVE" } } }
-  });
-  if (!student || student.enrollments.length === 0) throw new HttpError(404, "Aluno não pertence à turma desta atividade.");
-
-  // Grupo e entrega do aluno nesta atividade.
-  const membership = await prisma.groupMember.findFirst({ where: { studentId, group: { classId: activity.classId } }, include: { group: true } });
-  const group = activity.mode === "GROUP" ? membership?.group || null : null;
-  const submission = await prisma.submission.findFirst({
-    where: { activityId, ...(group ? { groupId: group.id } : { studentId }) },
-    select: { id: true, title: true, status: true }
-  });
-
-  const result = await ensureResult(evaluation.id, studentId, { groupId: group?.id, submissionId: submission?.id });
-  const criteria = await getActiveCriteria(activity.rubricVersionId);
-  const byCrit = new Map(result.criterionScores.map(cs => [cs.criterionId, cs]));
-  const calc = calcFor(criteria, result.criterionScores);
-  const docIds = new Set(criteria.filter(c => c.scope !== "INDIVIDUAL").map(c => c.id));
-
-  return {
-    resultId: result.id,
-    status: result.status,
-    state: deriveState(result),
-    student: { id: student.id, name: student.user.name },
-    activity: { id: activity.id, title: activity.title, mode: activity.mode },
-    group: group ? { id: group.id, name: group.name } : null,
-    submission,
-    documentsEvaluated: result.criterionScores.some(cs => docIds.has(cs.criterionId)),
-    presentationCriteria: criteria.filter(c => c.scope === "INDIVIDUAL").map(c => critDto(c, byCrit.get(c.id))),
-    generalFeedback: result.feedbacks.find(f => f.type === "FINAL")?.content || null,
-    groupScore: calc.groupScore, groupMax: calc.groupMax,
-    presentationScore: calc.individualScore, presentationMax: calc.individualMax,
-    finalScore: calc.finalScore, maxScore: calc.maxScore
-  };
-}
+// Estrutura própria e independente dos critérios de documento: ver presentationService.js.
 
 // ---------------- VISÃO DO PROFESSOR POR GRUPOS (documentos) ----------------
 // Atividades em que o professor avalia os documentos, com os critérios cadastrados,

@@ -76,3 +76,44 @@ export function validateRequiredCriteria(criteria, scores) {
     .map(c => c.title || c.id);
   return { valid: missing.length === 0, missing };
 }
+
+// =====================================================================
+// APRESENTAÇÃO (estrutura independente dos critérios de documento)
+// ---------------------------------------------------------------------
+// Nota de UMA avaliação (um professor avaliando um aluno):
+//   nota = Σ (nota_do_critério × peso)        máximo = Σ (máximo × peso)
+// Só entram os critérios ATIVOS. A avaliação está "completa" quando todos
+// os critérios ativos têm nota.
+//
+// Nota de apresentação do ALUNO = média das avaliações completas da banca
+// (com um único professor, é a nota dele). Sem avaliação completa, usa a
+// média das parciais apenas para exibição (não conclui a nota).
+//
+// NOTA FINAL = nota do grupo (documentos) + nota da apresentação.
+// =====================================================================
+
+// criteria: [{ id, maxPoints, weight }] (somente ativos); scores: { [criterionId]: score }
+export function calculatePresentation({ criteria, scores }) {
+  let score = 0, max = 0, filled = 0;
+  for (const c of criteria) {
+    const w = toNumber(c.weight ?? 1) || 1;
+    const m = toNumber(c.maxPoints);
+    max += m * w;
+    const raw = scores[c.id];
+    if (raw !== undefined && raw !== null && raw !== "") { score += toNumber(raw) * w; filled++; }
+  }
+  return {
+    score: Number(score.toFixed(2)),
+    max: Number(max.toFixed(2)),
+    complete: criteria.length > 0 && filled === criteria.length
+  };
+}
+
+// evaluations: [{ score, complete }] → { score, complete, count }
+export function averagePresentation(evaluations) {
+  const done = evaluations.filter(e => e.complete);
+  const base = done.length ? done : evaluations;
+  if (!base.length) return { score: 0, complete: false, count: 0 };
+  const avg = base.reduce((s, e) => s + toNumber(e.score), 0) / base.length;
+  return { score: Number(avg.toFixed(2)), complete: done.length > 0, count: done.length };
+}

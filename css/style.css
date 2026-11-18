@@ -155,3 +155,6 @@ textarea{resize:vertical;min-height:70px}
 .sheet .pfb { min-width: 160px; }
 .sheet .nowrap { white-space: nowrap; }
 .crit-row { margin-bottom: 6px; }
+.crit-ul { margin: 6px 0 0 18px; line-height: 1.7; }
+.sheet tr.inactive td { opacity: .55; }
+.sheet td .btn.sm + .btn.sm { margin-left: 4px; }

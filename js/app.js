@@ -246,7 +246,7 @@ const StudentArea = {
       if (a.mode === "GROUP") {
         body += a.myGroup
           ? `<p>👥 Entrega do grupo <b>${esc(a.myGroup.name)}</b> — qualquer integrante pode enviar; todos veem os mesmos arquivos.</p>`
-          : `<div class="card" style="border-color:rgba(255,93,108,.5)">Você ainda não está em um grupo nesta turma. Procure o administrador para ser incluído.</div>`;
+          : `<div class="card" style="border-color:rgba(255,93,108,.5)">Você ainda não está em um grupo, por isso não consegue enviar. Peça ao administrador para incluí-lo em um grupo (Admin › Grupos).</div>`;
       }
       if (!mine && (a.mode !== "GROUP" || a.myGroup)) {
         body += a.windowOpen ? `<form id="newsub"><div class="field"><label>Título do trabalho</label><input id="st" required placeholder="ex.: TCC — Sistema de Agendamento"></div>
@@ -314,8 +314,8 @@ const StudentArea = {
         ${scoreBox(g)}
         <h4 class="sec-h">📄 Documentos do grupo</h4>${crit(g.documentCriteria)}
         ${g.documentFeedback ? `<div class="card" style="background:#0a1226"><b>Comentário do professor sobre os documentos:</b><br>${esc(g.documentFeedback)}</div>` : ""}
-        <h4 class="sec-h">🎤 Sua apresentação</h4>${crit(g.presentationCriteria)}
-        ${g.generalFeedback ? `<div class="card" style="background:#0a1226"><b>Comentário do professor sobre a apresentação:</b><br>${esc(g.generalFeedback)}</div>` : ""}
+        <h4 class="sec-h">🎤 Sua apresentação (avaliação individual)${g.evaluators > 1 ? ` <span class="muted" style="font-size:12px">média de ${g.evaluators} avaliadores</span>` : ""}</h4>${crit(g.presentationCriteria)}
+        ${(g.presentationNotes || []).map(n => `<div class="card" style="background:#0a1226"><b>Observações de ${esc(n.teacher)}:</b><br>${esc(n.notes)}</div>`).join("")}
         <p class="muted" style="margin-top:8px">Avaliada em ${fmtDate(g.evaluatedAt)} · Publicada em ${fmtDate(g.publishedAt)}</p>`);
     });
   }
@@ -326,7 +326,7 @@ const TeacherArea = {
   tab: "documentos",
   render() {
     const view = mountTabs(this, [
-      { key: "documentos", label: "📄 Documentos Enviados" },
+      { key: "documentos", label: "📄 Documentos dos Grupos" },
       { key: "apresentacao", label: "🎤 Avaliação da Apresentação" },
       { key: "dashboard", label: "📊 Resumo" }
     ]);
@@ -352,28 +352,42 @@ const TeacherArea = {
     });
   },
 
-  // ---- 1) Documentos enviados pelos alunos ----
+  // ---- 1) Documentos: atividade → critérios → grupos → integrantes ----
   async documentos(view) {
     await guard(async () => {
-      const subs = await api.tReceived();
-      const acts = [...new Map(subs.map(s => [s.activity.id, s.activity])).values()];
-      view.innerHTML = `<div class="card"><h3>📄 Documentos enviados pelos alunos</h3>
-        <p class="muted" style="margin-bottom:10px">Abra os documentos, dê as notas pelos critérios cadastrados pelo administrador e comente. Em atividades em grupo, a nota vale para todos os integrantes (nota do grupo).</p>
-        ${acts.length > 1 ? `<div class="field"><label>Filtrar por atividade</label><select id="fact"><option value="">Todas</option>${acts.map(a => `<option value="${a.id}">${esc(a.title)}</option>`).join("")}</select></div>` : ""}
-        <div id="doclist"></div></div>`;
-      const draw = () => {
-        const f = $("#fact")?.value;
-        const list = subs.filter(s => !f || s.activity.id === f);
-        $("#doclist").innerHTML = list.length ? list.map(s => {
-          const who = s.group ? `👥 ${esc(s.group.name)} (${s.group.members.map(m => esc(m.student.user.name)).join(", ")})` : `👤 ${esc(s.student?.user?.name || "")}`;
-          const nfiles = s.versions.reduce((n, v) => n + v._count.files, 0);
-          return `<div class="list-item"><div class="info"><div class="title">${esc(s.title)}</div>
-            <div class="sub">${who} · ${esc(s.activity.title)} · ${nfiles} arquivo(s) · ${["NOT_STARTED", "IN_PROGRESS"].includes(s.status) ? '<span class="pill IN_PROGRESS">⚠️ aluno ainda não confirmou o envio</span>' : "enviado em " + fmtDay(s.submittedAt) + " " + pill(s.status)}</div></div>
-            <button class="btn sm" onclick="TeacherArea.evaluateDocs('${s.id}')">Abrir e avaliar</button></div>`;
-        }).join("") : '<div class="empty">Nenhum documento recebido ainda. Aparecem aqui os documentos das atividades em que o administrador marcou você como avaliador dos documentos.</div>';
+      const list = await api.tDocsOverview();
+      if (!list.length) {
+        view.innerHTML = '<div class="card"><h3>📄 Documentos dos Grupos</h3><div class="empty">Você ainda não avalia documentos de nenhuma atividade. O administrador define isso em "📄 Atividades — Documentos".</div></div>';
+        return;
+      }
+      const SUB = (e) => {
+        const s = e.submission;
+        if (e.published) return '<span class="pill PUBLISHED">nota publicada</span>';
+        if (e.evaluated) return `<span class="pill EVALUATED">avaliado · ${num(e.groupScore)}</span>`;
+        if (!s || !s.files) return '<span class="pill DRAFT">ainda não enviou</span>';
+        if (["NOT_STARTED", "IN_PROGRESS"].includes(s.status)) return `<span class="pill IN_PROGRESS">⚠️ ${s.files} arquivo(s), envio não confirmado</span>`;
+        return `<span class="pill SUBMITTED">📎 ${s.files} arquivo(s) enviado(s)</span>`;
       };
-      if ($("#fact")) $("#fact").onchange = draw;
-      draw();
+      view.innerHTML = `<div class="welcome"><span class="tag">ÁREA DO PROFESSOR</span><h2>📄 Documentos dos Grupos</h2>
+        <p>Para cada atividade, veja os critérios cadastrados, os grupos e seus integrantes. Clique em <b>Avaliar documentos</b> para baixar os arquivos e dar a nota do grupo.</p></div>
+        ${list.map(x => `<div class="card">
+          <h3>${esc(x.activity.title)} ${pill(x.activity.status)} <span class="muted" style="font-size:13px;margin-left:auto">prazo ${fmtDay(x.activity.dueDate)}</span></h3>
+          <div class="card" style="background:#0a1226"><b>📋 Critérios dos documentos</b> <span class="muted">(nota máxima do grupo: ${num(x.documentMax)})</span>
+            ${x.documentCriteria.length ? `<ul class="crit-ul">${x.documentCriteria.map(c => `<li>${esc(c.title)} — até ${num(c.maxPoints)}${c.description ? ` <span class="muted">· ${esc(c.description)}</span>` : ""}</li>`).join("")}</ul>` : '<p class="muted">Nenhum critério cadastrado pelo administrador.</p>'}</div>
+          ${x.ungrouped.length ? `<div class="card" style="border-color:rgba(255,191,71,.4)">⚠️ Alunos sem grupo: ${x.ungrouped.map(esc).join(", ")} — o administrador precisa incluí-los em um grupo.</div>` : ""}
+          ${x.entries.length ? x.entries.map(e => `<div class="list-item"><div class="info">
+              <div class="title">${e.kind === "GROUP" ? "👥 " : "👤 "}${esc(e.name)}</div>
+              <div class="sub">${e.kind === "GROUP" ? `Integrantes: ${e.members.map(m => esc(m.name)).join(", ") || "<i>nenhum</i>"} · ` : ""}${SUB(e)}</div></div>
+            <button class="btn sm" ${e.members.length ? "" : "disabled"} onclick="TeacherArea.openDocs('${x.activity.id}','${e.groupId || ""}','${e.studentId || ""}')">${e.evaluated ? "Ver / editar nota" : "Avaliar documentos"}</button></div>`).join("")
+            : `<div class="empty">${x.activity.mode === "GROUP" ? "Nenhum grupo cadastrado." : "Nenhum aluno."}</div>`}
+        </div>`).join("")}`;
+    });
+  },
+
+  openDocs(activityId, groupId, studentId) {
+    guard(async () => {
+      const ctx = await api.tDocOpenFor(activityId, { groupId: groupId || undefined, studentId: studentId || undefined });
+      await this.evaluateDocs(ctx.submission.id);
     });
   },
 
@@ -399,6 +413,7 @@ const TeacherArea = {
         const r = await api.tDocSave(submissionId, { scores: collectInputs("doc"), feedback: $("#docfb").value });
         toast(`Notas salvas. Nota do grupo: ${num(r.groupScore)}`);
         this.evaluateDocs(submissionId);
+        if (this.tab === "documentos" && $("#view")) this.documentos($("#view"));
       });
       $("#addnote").onclick = () => guard(async () => {
         const c = $("#note").value.trim(); if (!c) return;
@@ -407,88 +422,81 @@ const TeacherArea = {
     });
   },
 
-  // ---- 2) Avaliação da apresentação: planilha por grupo ----
+  // ---- 2) Avaliação da apresentação: projeto → integrantes → avaliação INDIVIDUAL ----
   async apresentacao(view) {
     await guard(async () => {
-      const acts = (await api.activitiesList()).filter(a => a.myRoles?.presentation);
-      if (!acts.length) {
-        view.innerHTML = '<div class="card"><h3>🎤 Avaliação da Apresentação</h3><div class="empty">Você ainda não está na banca de nenhuma apresentação. O administrador define isso no menu "🎤 Avaliação da Apresentação".</div></div>';
+      const projects = await api.tPresProjects();
+      this._projects = projects;
+      if (!projects.length) {
+        view.innerHTML = '<div class="card"><h3>🎤 Avaliação da Apresentação</h3><div class="empty">Você ainda não está na banca de nenhuma apresentação. O administrador define isso em "🎤 Avaliação da Apresentação".</div></div>';
         return;
       }
-      if (!this._act || !acts.some(a => a.id === this._act)) this._act = acts[0].id;
-      view.innerHTML = `<div class="card"><h3>🎤 Avaliação da Apresentação</h3>
-        <p class="muted">Digite a nota de cada aluno em cada critério e clique em <b>Salvar notas</b>. A nota final soma a nota do grupo (documentos) com a da apresentação. Quando tudo estiver lançado, clique em <b>Publicar notas</b> para os alunos verem.</p>
-        ${acts.length > 1 ? `<div class="field"><label>Atividade</label><select id="act">${acts.map(a => `<option value="${a.id}" ${a.id === this._act ? "selected" : ""}>${esc(a.title)}</option>`).join("")}</select></div>` : `<p><b>${esc(acts[0].title)}</b></p>`}
-        <div id="presbox"></div></div>`;
-      if ($("#act")) $("#act").onchange = (e) => { this._act = e.target.value; this.loadPresentation(this._act); };
-      await this.loadPresentation(this._act);
+      if (!this._act || !projects.some(p => p.activity.id === this._act)) this._act = projects[0].activity.id;
+      view.innerHTML = `<div class="welcome"><span class="tag">ÁREA DO PROFESSOR</span><h2>🎤 Avaliação da Apresentação</h2>
+        <p>Escolha o projeto, depois o aluno. Cada integrante recebe a <b>sua própria nota</b>, pelos critérios de apresentação cadastrados pelo administrador. A nota final soma a nota do grupo (documentos) com a nota individual da apresentação.</p></div>
+        <div class="card">${projects.length > 1 ? `<div class="field"><label>Projeto / atividade</label><select id="act">${projects.map(p => `<option value="${p.activity.id}" ${p.activity.id === this._act ? "selected" : ""}>${esc(p.activity.title)}</option>`).join("")}</select></div>` : ""}
+          <div id="presbox"></div></div>`;
+      if ($("#act")) $("#act").onchange = (e) => { this._act = e.target.value; this.drawProject(); };
+      this.drawProject();
     });
   },
 
-  async loadPresentation(activityId) {
-    const box = $("#presbox"); if (!box) return;
-    box.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
-    await guard(async () => {
-      const sheet = await api.tPresSheet(activityId);
-      const crits = sheet.presentationCriteria;
-      if (!crits.length) { box.innerHTML = '<div class="empty">O administrador ainda não cadastrou os critérios da apresentação desta atividade.</div>'; return; }
-      const groups = new Map();
-      sheet.students.forEach(s => { const k = s.group ? s.group.name : "Sem grupo"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(s); });
-      const STATE = { NOT_STARTED: ["DRAFT", "sem notas"], IN_PROGRESS: ["IN_PROGRESS", "incompleta"], CONCLUDED: ["EVALUATED", "pronta para publicar"], PUBLISHED: ["PUBLISHED", "publicada"] };
-      const row = (s) => {
-        const locked = s.state === "PUBLISHED";
-        const [cls, label] = STATE[s.state] || ["DRAFT", s.state];
-        return `<tr data-st="${s.student.id}">
-          <td><b>${esc(s.student.name)}</b><div class="muted" style="font-size:12px"><span class="pill ${cls}">${label}</span></div></td>
-          ${crits.map(c => `<td><input type="number" class="pin" data-c="${c.id}" min="0" max="${c.maxPoints}" step="0.25" value="${s.presentationScores?.[c.id]?.score ?? ""}" ${locked ? "disabled" : ""} placeholder="0–${num(c.maxPoints)}"></td>`).join("")}
-          <td><input class="pfb" value="${esc(s.feedback || "")}" placeholder="Comentário (opcional)" ${locked ? "disabled" : ""}></td>
-          <td class="nowrap">📄 ${s.documentsEvaluated ? num(s.groupScore) : '<span class="muted" title="Documentos ainda não avaliados">—</span>'} + 🎤 ${num(s.presentationScore)} = <b>${num(s.finalScore)}</b></td>
-          <td>${locked ? `<button class="btn sm ghost" onclick="TeacherArea.revise('${activityId}','${s.resultId}',${js(s.student.name)})">Revisar</button>` : ""}</td></tr>`;
-      };
-      box.innerHTML = [...groups.entries()].map(([gname, items]) => `
-        <div class="card" style="background:#0a1226;overflow-x:auto"><h3>${gname === "Sem grupo" ? "👤 Alunos sem grupo" : "👥 " + esc(gname)}</h3>
-          <table class="sheet"><thead><tr><th>Aluno</th>${crits.map(c => `<th>${esc(c.title)}<div class="muted" style="font-weight:400">máx. ${num(c.maxPoints)}</div></th>`).join("")}<th>Comentário</th><th>Nota final</th><th></th></tr></thead>
-          <tbody>${items.map(row).join("")}</tbody></table>
-          ${items.some(s => s.state !== "PUBLISHED") ? `<button class="btn sm" style="margin-top:8px" onclick="TeacherArea.saveSheet(this,'${activityId}')">💾 Salvar notas ${gname === "Sem grupo" ? "" : "do grupo"}</button>` : ""}
-        </div>`).join("")
-        + `<div class="row" style="margin-top:8px"><button class="btn green" style="flex:0 0 auto" onclick="TeacherArea.publishAll('${activityId}')">📢 Publicar notas prontas</button>
-          <span class="muted" style="font-size:12px;align-self:center">Só são publicadas as notas completas (documentos + apresentação).</span></div>`;
-    });
+  drawProject() {
+    const p = (this._projects || []).find(x => x.activity.id === this._act); const box = $("#presbox");
+    if (!p || !box) return;
+    const ST = { NOT_STARTED: ["DRAFT", "não avaliado"], IN_PROGRESS: ["IN_PROGRESS", "em andamento"], READY: ["EVALUATED", "pronta para publicar"], PUBLISHED: ["PUBLISHED", "publicada"] };
+    const mineTxt = (m) => !m.myEvaluation ? '<span class="muted">você ainda não avaliou</span>'
+      : m.myEvaluation.complete ? `✅ sua nota: <b>${num(m.myEvaluation.score)}</b>` : `✏️ sua avaliação está incompleta (${num(m.myEvaluation.score)})`;
+    box.innerHTML = `<h3>${esc(p.activity.title)}</h3>
+      ${p.criteriaCount ? `<p class="muted" style="font-size:13px">${p.criteriaCount} critério(s) de apresentação · nota máxima ${num(p.maxScore)}</p>` : '<div class="card" style="border-color:rgba(255,191,71,.5)">⚠️ O administrador ainda não cadastrou critérios de apresentação ativos.</div>'}
+      ${p.groups.map(g => `<div class="card" style="background:#0a1226"><h3>${g.id ? "👥 " : "👤 "}${esc(g.name)} <span class="muted" style="font-size:13px">(${g.members.length} integrante(s))</span></h3>
+        ${g.members.length ? g.members.map(m => { const [cls, label] = ST[m.state] || ST.NOT_STARTED; return `<div class="list-item"><div class="info">
+          <div class="title">${esc(m.name)} <span class="pill ${cls}">${label}</span></div>
+          <div class="sub">${mineTxt(m)} · 📄 grupo ${m.groupScore === null ? "—" : num(m.groupScore)} + 🎤 apresentação ${m.presentationScore === null ? "—" : num(m.presentationScore)} = ⭐ <b>${m.finalScore === null ? "—" : num(m.finalScore)}</b>${m.evaluators > 1 ? ` · ${m.evaluators} avaliadores (média)` : ""}</div></div>
+          <button class="btn sm" ${p.criteriaCount ? "" : "disabled"} onclick="TeacherArea.evalStudent('${p.activity.id}','${m.id}')">${m.myEvaluation ? "Ver / editar" : "Avaliar"}</button></div>`; }).join("") : '<p class="muted">Sem integrantes.</p>'}
+      </div>`).join("")}
+      <div class="row" style="margin-top:8px"><button class="btn green" style="flex:0 0 auto" onclick="TeacherArea.publishAll('${p.activity.id}')">📢 Publicar notas prontas</button>
+        <span class="muted" style="font-size:12px;align-self:center">Publica as notas completas (documentos do grupo + apresentação).</span></div>`;
   },
 
-  async saveSheet(btn, activityId) {
-    const card = btn.closest(".card");
-    await guard(async () => {
-      let saved = 0;
-      for (const tr of card.querySelectorAll("tr[data-st]")) {
-        const inputs = [...tr.querySelectorAll(".pin")];
-        if (inputs.every(i => i.disabled)) continue;
-        const scores = inputs.map(i => ({ criterionId: i.dataset.c, score: i.value === "" ? null : Number(i.value) }));
-        const fb = tr.querySelector(".pfb");
-        if (scores.every(x => x.score === null) && !fb.value.trim()) continue;
-        await api.tPresSave(activityId, tr.dataset.st, { scores, feedback: fb.value.trim() });
-        saved++;
-      }
-      toast(saved ? `Notas salvas (${saved} aluno(s)).` : "Nenhuma nota digitada.", saved ? "ok" : "err");
-      this.loadPresentation(activityId);
-    });
+  async refreshProjects() {
+    this._projects = await api.tPresProjects();
+    this.drawProject();
   },
 
-  revise(activityId, resultId, name) {
+  evalStudent(activityId, studentId) {
     guard(async () => {
-      const sheet = await api.tPresSheet(activityId);
-      const s = sheet.students.find(x => x.resultId === resultId);
-      openModal(`Revisar nota publicada: ${name}`, `
-        <p class="muted">A nota já foi publicada. Informe as novas notas e a justificativa (fica registrada no histórico).</p>
-        ${sheet.presentationCriteria.map(c => `<div class="field"><label>${esc(c.title)} (máx. ${num(c.maxPoints)})</label><input type="number" class="rin" data-c="${c.id}" min="0" max="${c.maxPoints}" step="0.25" value="${s?.presentationScores?.[c.id]?.score ?? ""}"></div>`).join("")}
-        <div class="field"><label>Comentário</label><input id="rfb" value="${esc(s?.feedback || "")}"></div>
-        <div class="field"><label>Justificativa da revisão (obrigatória)</label><input id="rjust"></div>
-        <button class="btn danger" id="rsave">Salvar revisão</button>`);
-      $("#rsave").onclick = () => guard(async () => {
-        if (!$("#rjust").value.trim()) return toast("Informe a justificativa.", "err");
-        const scores = [...document.querySelectorAll(".rin")].map(i => ({ criterionId: i.dataset.c, score: Number(i.value) }));
-        await api.tRevise(resultId, { scores, generalFeedback: $("#rfb").value, justification: $("#rjust").value.trim() });
-        toast("Nota revisada."); closeModal(); this.loadPresentation(activityId);
+      const ctx = await api.tPresStudent(activityId, studentId);
+      const published = ctx.state === "PUBLISHED";
+      openModal(`Avaliação individual — ${ctx.student.name}`, `
+        <p><b>Projeto:</b> ${esc(ctx.activity.title)}${ctx.group ? ` · <b>Grupo:</b> ${esc(ctx.group.name)}` : ""}</p>
+        ${ctx.group ? `<p class="muted" style="font-size:13px">Integrantes: ${ctx.group.members.map(m => m.id === ctx.student.id ? `<b>${esc(m.name)}</b>` : esc(m.name)).join(", ")}</p>` : ""}
+        ${published ? '<div class="card" style="border-color:rgba(255,191,71,.5)">Esta nota já foi publicada. Para alterar, informe a justificativa (fica registrada no histórico).</div>' : ""}
+        <div style="overflow-x:auto"><table class="sheet"><thead><tr><th>Critério</th><th>Pontuação máx.</th><th>Peso</th><th>Nota atribuída</th></tr></thead><tbody>
+          ${ctx.criteria.map(c => `<tr><td><b>${esc(c.title)}</b>${c.description ? `<div class="muted" style="font-size:12px">${esc(c.description)}</div>` : ""}</td>
+            <td>${num(c.maxPoints)}</td><td>${num(c.weight)}</td>
+            <td><input type="number" class="pin" data-c="${c.id}" data-w="${c.weight}" data-m="${c.maxPoints}" min="0" max="${c.maxPoints}" step="0.25" value="${c.score ?? ""}" placeholder="0–${num(c.maxPoints)}"></td></tr>`).join("")}
+        </tbody></table></div>
+        <p style="margin-top:8px">Nota individual da apresentação (sua avaliação): <b class="score-inline" id="ptotal">—</b> / ${num(ctx.maxScore)}</p>
+        <div class="field"><label>Observações sobre o desempenho do aluno</label><textarea id="pnotes" placeholder="Pontos fortes, o que melhorar...">${esc(ctx.notes || "")}</textarea></div>
+        ${published ? '<div class="field"><label>Justificativa da alteração (obrigatória)</label><input id="pjust"></div>' : ""}
+        ${ctx.banca.length > 1 ? `<p class="muted" style="font-size:13px">Banca: ${ctx.banca.map(b => `${esc(b.teacher)}${b.mine ? " (você)" : ""}: ${num(b.score)}${b.complete ? "" : " (incompleta)"}`).join(" · ")} → média ${num(ctx.presentationScore)}</p>` : ""}
+        <p class="muted" style="font-size:13px">📄 Nota do grupo: ${ctx.groupScore === null ? "documentos ainda não avaliados" : num(ctx.groupScore)} · ⭐ Nota final atual: ${ctx.finalScore === null ? "—" : num(ctx.finalScore)}</p>
+        <button class="btn ${published ? "danger" : ""}" id="psave">${published ? "Salvar revisão" : "💾 Salvar avaliação"}</button>`);
+      const calc = () => {
+        let t = 0, filled = 0; const ins = [...document.querySelectorAll(".modal .pin")];
+        ins.forEach(i => { if (i.value !== "") { t += Number(i.value) * Number(i.dataset.w); filled++; } });
+        $("#ptotal").textContent = filled ? num(t) + (filled < ins.length ? " (incompleta)" : "") : "—";
+      };
+      document.querySelectorAll(".modal .pin").forEach(i => i.oninput = calc); calc();
+      $("#psave").onclick = () => guard(async () => {
+        const ins = [...document.querySelectorAll(".modal .pin")];
+        for (const i of ins) if (i.value !== "" && (Number(i.value) < 0 || Number(i.value) > Number(i.dataset.m))) return toast(`Nota fora do intervalo (0 a ${i.dataset.m}).`, "err");
+        const body = { scores: ins.map(i => ({ criterionId: i.dataset.c, score: i.value === "" ? null : Number(i.value) })), notes: $("#pnotes").value };
+        if (published) { body.justification = $("#pjust").value.trim(); if (!body.justification) return toast("Informe a justificativa.", "err"); }
+        const r = await api.tPresStudentSave(activityId, studentId, body);
+        toast(`Avaliação de ${r.student.name} salva${r.myComplete ? "" : " (incompleta: faltam critérios)"}. Nota individual: ${num(r.myScore)}`);
+        closeModal(); this.refreshProjects();
       });
     });
   },
@@ -497,7 +505,7 @@ const TeacherArea = {
     await guard(async () => {
       if (!confirm("Publicar todas as notas já concluídas desta atividade?")) return;
       const r = await request("POST", `/api/teacher/activities/${activityId}/publish-all`);
-      toast(`${r.published} nota(s) publicada(s).`); this.loadPresentation(activityId);
+      toast(`${r.published} nota(s) publicada(s).`); this.refreshProjects();
     });
   }
 };
@@ -647,10 +655,12 @@ const AdminArea = {
   // ======== 📄 MENU 1: Atividades — Documentos (o que os grupos enviam) ========
   async documentos(view) {
     await guard(async () => {
-      const [acts, teachers] = await Promise.all([api.activitiesList(), api.catTeachers()]);
+      const [acts, teachers, students] = await Promise.all([api.activitiesList(), api.catTeachers(), api.adStudents()]);
       this._teachers = teachers;
+      const semGrupo = students.filter(st => !st.group);
       view.innerHTML = `<div class="welcome"><span class="tag">ADMINISTRAÇÃO</span><h2>📄 Atividades — Documentos</h2>
         <p>Cadastre o que os grupos devem enviar (ex.: <b>Documento do TCC</b>), o prazo, os <b>critérios de avaliação do documento</b> e os <b>professores que vão corrigir</b>. A nota dos documentos vale para todo o grupo.</p></div>
+        ${semGrupo.length ? `<div class="card" style="border-color:rgba(255,191,71,.5)">⚠️ <b>${semGrupo.length} aluno(s) sem grupo</b> não conseguem enviar documentos em atividades em grupo: ${semGrupo.map(st => esc(st.name)).join(", ")}. Inclua-os na aba <b>Grupos</b>.</div>` : ""}
         <div class="card"><h3>Nova atividade de envio de documentos</h3><form id="newact">
           <div class="row"><div><label class="muted">Título</label><input id="atitle" required placeholder="ex.: Documento do TCC"></div>
             <div><label class="muted">Entrega</label><select id="am"><option value="GROUP">Em grupo</option><option value="INDIVIDUAL">Individual</option></select></div></div>
@@ -699,21 +709,69 @@ const AdminArea = {
   // ======== 🎤 MENU 2: Avaliação da Apresentação ========
   async apresentacao(view) {
     await guard(async () => {
-      const [acts, teachers] = await Promise.all([api.activitiesList(), api.catTeachers()]);
-      this._teachers = teachers;
+      const [{ criteria, maxScore }, acts, teachers] = await Promise.all([api.adPresCriteria(), api.activitiesList(), api.catTeachers()]);
+      this._teachers = teachers; this._pcrit = criteria;
+      const row = (c, i) => `<tr class="${c.active ? "" : "inactive"}">
+          <td class="nowrap"><button class="btn sm ghost" title="Subir" ${i === 0 ? "disabled" : ""} onclick="AdminArea.movePres(${i},-1)">↑</button><button class="btn sm ghost" title="Descer" ${i === criteria.length - 1 ? "disabled" : ""} onclick="AdminArea.movePres(${i},1)">↓</button></td>
+          <td><b>${esc(c.title)}</b>${c.description ? `<div class="muted" style="font-size:12px">${esc(c.description)}</div>` : ""}</td>
+          <td>${num(c.maxPoints)}</td><td>${num(c.weight)}</td>
+          <td><label class="check"><input type="checkbox" ${c.active ? "checked" : ""} onchange="AdminArea.togglePres('${c.id}',this.checked)"> ${c.active ? "ativo" : "inativo"}</label></td>
+          <td class="nowrap"><button class="btn sm ghost" onclick="AdminArea.editPres('${c.id}')">Editar</button>
+            <button class="btn sm danger" onclick="AdminArea.delPres('${c.id}',${js(c.title)},${c.used})">Excluir</button></td></tr>`;
       view.innerHTML = `<div class="welcome"><span class="tag">ADMINISTRAÇÃO</span><h2>🎤 Avaliação da Apresentação</h2>
-        <p>Para cada atividade (ex.: TCC), cadastre os <b>critérios da apresentação</b> e escolha os <b>professores da banca</b>. A nota da apresentação é individual e é somada à nota do grupo (documentos).</p></div>
-        ${acts.length ? acts.map(a => {
-          const ready = a.presentationCriteria.length && a.presentationTeachers.length;
-          return `<div class="card">
-            <h3>🎤 ${esc(a.title)} <span class="pill ${ready ? "EVALUATED" : "IN_PROGRESS"}" style="margin-left:8px">${ready ? "pronta para avaliar" : "falta configurar"}</span></h3>
-            <p class="muted" style="font-size:13px">Nota final do aluno = documentos (máx. ${num(a.documentMax)}) + apresentação (máx. ${num(a.presentationMax)}) = máx. <b>${num(a.documentMax + a.presentationMax)}</b></p>
-            <div class="grid cols-2">
-              <div><b>📋 Critérios da apresentação</b>${this.critList(a, a.presentationCriteria, "PRESENTATION")}${this.addCritForm(a, "PRESENTATION")}</div>
-              <div><b>👩‍🏫 Professores da banca (apresentação)</b>${this.teacherBoxes(`pt-${a.id}`, teachers, a.presentationTeachers.map(t => t.id))}
-                <button class="btn sm" style="margin-top:6px" onclick="AdminArea.saveTeachers('${a.id}','presentation')">Salvar professores</button></div>
-            </div></div>`; }).join("")
-          : '<div class="card"><div class="empty">Cadastre primeiro uma atividade no menu "📄 Atividades — Documentos".</div></div>'}`;
+        <p>Os critérios da apresentação são <b>independentes</b> dos critérios dos documentos. Os critérios <b>ativos</b> aparecem automaticamente para os professores da banca, que avaliam <b>cada aluno individualmente</b>.</p></div>
+        <div class="card"><h3>📋 Critérios de Avaliação da Apresentação <span class="muted" style="font-size:13px;margin-left:auto">nota máxima da apresentação: <b>${num(maxScore)}</b></span></h3>
+          ${criteria.length ? `<div style="overflow-x:auto"><table class="sheet"><thead><tr><th>Ordem</th><th>Critério / orientação ao avaliador</th><th>Pontuação máx.</th><th>Peso</th><th>Situação</th><th></th></tr></thead>
+            <tbody>${criteria.map(row).join("")}</tbody></table></div>` : '<div class="empty">Nenhum critério cadastrado. Cadastre abaixo.</div>'}
+          <h4 class="sec-h">Novo critério</h4>
+          <form id="fpc"><div class="row"><div style="flex:2"><label class="muted">Nome do critério</label><input id="pct" required placeholder="ex.: Domínio do conteúdo apresentado"></div>
+            <div><label class="muted">Pontuação máxima</label><input id="pcm" type="number" min="0.5" step="0.5" value="10" required></div>
+            <div><label class="muted">Peso</label><input id="pcw" type="number" min="0.1" step="0.1" value="1" required></div></div>
+            <div class="field" style="margin-top:8px"><label>Descrição / orientação ao avaliador (opcional)</label><input id="pcd" placeholder="ex.: Explica o projeto com segurança e responde às perguntas da banca"></div>
+            <label class="check" style="margin:6px 0 10px"><input type="checkbox" id="pca" checked> ativo (aparece para os professores)</label>
+            <button class="btn">Cadastrar critério</button></form>
+          <p class="muted" style="font-size:12px;margin-top:8px">Nota individual da apresentação = soma de (nota × peso) dos critérios ativos. Com mais de um professor na banca, vale a média das avaliações. Critérios já usados em avaliações não mudam de pontuação nem de peso; ao excluir, saem das telas, mas o histórico é mantido.</p>
+        </div>
+        <div class="card"><h3>👩‍🏫 Banca de cada atividade</h3>
+          <p class="muted" style="font-size:13px">Marque os professores que avaliam a apresentação em cada atividade.</p>
+          ${acts.length ? acts.map(a => `<div class="card" style="background:#0a1226"><h3>🎤 ${esc(a.title)} <span class="muted" style="font-size:13px;margin-left:auto">nota final máx. = documentos ${num(a.documentMax)} + apresentação ${num(maxScore)} = <b>${num(a.documentMax + maxScore)}</b></span></h3>
+              ${this.teacherBoxes(`pt-${a.id}`, teachers, a.presentationTeachers.map(t => t.id))}
+              <button class="btn sm" style="margin-top:6px" onclick="AdminArea.saveTeachers('${a.id}','presentation')">Salvar banca</button></div>`).join("")
+            : '<div class="empty">Cadastre primeiro uma atividade no menu "📄 Atividades — Documentos".</div>'}
+        </div>`;
+      $("#fpc").onsubmit = (e) => { e.preventDefault(); guard(async () => {
+        await api.adPresCreate({ title: $("#pct").value.trim(), description: $("#pcd").value.trim(), maxPoints: Number($("#pcm").value), weight: Number($("#pcw").value), active: $("#pca").checked });
+        toast("Critério cadastrado."); this.apresentacao(view);
+      }); };
+    });
+  },
+  movePres(i, dir) {
+    guard(async () => {
+      const ids = this._pcrit.map(c => c.id); const j = i + dir;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      await api.adPresOrder(ids); this.render();
+    });
+  },
+  togglePres(id, active) { guard(async () => { await api.adPresUpdate(id, { active }); toast(active ? "Critério ativado." : "Critério desativado (não aparece para os professores)."); this.render(); }); },
+  editPres(id) {
+    const c = this._pcrit.find(x => x.id === id); if (!c) return;
+    openModal(`Editar critério`, `
+      <div class="field"><label>Nome</label><input id="ept" value="${esc(c.title)}"></div>
+      <div class="field"><label>Descrição / orientação ao avaliador</label><input id="epd" value="${esc(c.description || "")}"></div>
+      <div class="row"><div><label class="muted">Pontuação máxima</label><input id="epm" type="number" min="0.5" step="0.5" value="${c.maxPoints}" ${c.used ? "disabled" : ""}></div>
+        <div><label class="muted">Peso</label><input id="epw" type="number" min="0.1" step="0.1" value="${c.weight}" ${c.used ? "disabled" : ""}></div></div>
+      ${c.used ? '<p class="muted" style="font-size:12px">🔒 Já usado em avaliações: pontuação máxima e peso não podem mudar.</p>' : ""}
+      <button class="btn" id="eps" style="margin-top:10px">Salvar</button>`);
+    $("#eps").onclick = () => guard(async () => {
+      const body = { title: $("#ept").value.trim(), description: $("#epd").value.trim() };
+      if (!c.used) { body.maxPoints = Number($("#epm").value); body.weight = Number($("#epw").value); }
+      await api.adPresUpdate(id, body); toast("Critério atualizado."); closeModal(); this.render();
+    });
+  },
+  delPres(id, title, used) {
+    guard(async () => {
+      if (!confirm(used ? `"${title}" já foi usado em avaliações. Ele sairá das telas, mas as notas já dadas ficam no histórico. Continuar?` : `Excluir o critério "${title}"?`)) return;
+      await api.adPresDelete(id); toast("Critério excluído."); this.render();
     });
   },
 
@@ -733,7 +791,7 @@ const AdminArea = {
       const ids = this.checked(`${role === "documents" ? "dt" : "pt"}-${activityId}`);
       if (role === "documents" && !ids.length) return toast("Marque ao menos um professor para os documentos.", "err");
       await api.activityUpdate(activityId, role === "documents" ? { documentTeacherIds: ids } : { presentationTeacherIds: ids });
-      toast("Professores salvos.");
+      toast(role === "documents" ? "Professores salvos." : "Banca salva.");
     });
   },
   delActivity(id, title) { guard(async () => { if (!confirm(`Excluir a atividade "${title}"?`)) return; await api.activityDelete(id); toast("Atividade excluída."); this.render(); }); },

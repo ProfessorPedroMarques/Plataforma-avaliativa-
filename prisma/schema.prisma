@@ -146,6 +146,7 @@ model Teacher {
   assignments ClassSubject[]
   activities  Activity[]     @relation("ActivityTeacher")
   evaluatorOf ActivityEvaluator[]
+  presentationEvaluations PresentationEvaluation[]
 
   @@map("teachers")
 }
@@ -165,6 +166,7 @@ model Student {
   groupMemberships GroupMember[]
 
   individualResults        EvaluationResult[]  @relation("StudentResults")
+  presentationEvaluations  PresentationEvaluation[]
   evaluationParticipations EvaluationStudent[]
   submissions              Submission[]
 
@@ -295,6 +297,7 @@ model StudentGroup {
   evaluationParticipations EvaluationGroup[]
   results                  EvaluationResult[]
   submissions              Submission[]
+  presentationEvaluations  PresentationEvaluation[]
 
   @@index([classId])
   @@map("student_groups")
@@ -390,6 +393,7 @@ model Activity {
   submissions Submission[]
   evaluations Evaluation[]
   evaluators  ActivityEvaluator[]
+  presentationEvaluations PresentationEvaluation[]
 
   @@index([classId])
   @@index([teacherId])
@@ -676,6 +680,12 @@ model EvaluationResult {
   maxScore Decimal      @default(10) @db.Decimal(8, 2)
   status   ResultStatus @default(DRAFT)
 
+  // Composição da nota (gravada a cada cálculo e congelada na publicação)
+  groupScore        Decimal? @db.Decimal(8, 2)
+  groupMax          Decimal? @db.Decimal(8, 2)
+  presentationScore Decimal? @db.Decimal(8, 2)
+  presentationMax   Decimal? @db.Decimal(8, 2)
+
   finalizedAt DateTime?
   publishedAt DateTime?
   createdAt   DateTime  @default(now())
@@ -801,4 +811,75 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ======================================================
+// AVALIAÇÃO DA APRESENTAÇÃO (estrutura independente dos critérios de documento)
+// ======================================================
+
+// Critérios da apresentação cadastrados pelo ADMIN (valem para todas as apresentações).
+model PresentationCriterion {
+  id          String  @id @default(uuid())
+  title       String
+  description String?
+  maxPoints   Decimal @default(10) @db.Decimal(8, 2)
+  weight      Decimal @default(1) @db.Decimal(8, 2)
+  active      Boolean @default(true)
+  // "Excluído" depois de já usado em avaliações: some das telas, mas preserva o histórico.
+  archived    Boolean @default(false)
+  position    Int
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scores PresentationScore[]
+
+  @@index([active, archived])
+  @@map("presentation_criteria")
+}
+
+// Avaliação INDIVIDUAL de um aluno na apresentação, feita por UM professor da banca.
+model PresentationEvaluation {
+  id         String  @id @default(uuid())
+  activityId String
+  studentId  String
+  groupId    String?
+  teacherId  String
+
+  notes    String?
+  score    Decimal? @db.Decimal(8, 2)
+  maxScore Decimal? @db.Decimal(8, 2)
+  complete Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activity Activity      @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  student  Student       @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  group    StudentGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  teacher  Teacher       @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  scores PresentationScore[]
+
+  @@unique([activityId, studentId, teacherId])
+  @@index([activityId, studentId])
+  @@map("presentation_evaluations")
+}
+
+// Nota de um critério dentro de uma avaliação de apresentação.
+model PresentationScore {
+  id           String  @id @default(uuid())
+  evaluationId String
+  criterionId  String
+  score        Decimal @db.Decimal(8, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  evaluation PresentationEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  criterion  PresentationCriterion  @relation(fields: [criterionId], references: [id], onDelete: Restrict)
+
+  @@unique([evaluationId, criterionId])
+  @@map("presentation_scores")
 }
