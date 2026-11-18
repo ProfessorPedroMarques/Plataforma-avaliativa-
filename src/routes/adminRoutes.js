@@ -10,6 +10,9 @@ const router = Router();
 
 router.use(authenticateToken, authorizeRole("ADMIN"));
 
+// Visão geral (painel do administrador; somente leitura)
+router.get("/overview", asyncHandler(c.overview));
+
 // Usuários
 router.get("/users", asyncHandler(c.listUsers));
 router.post("/teachers", asyncHandler(c.createTeacher));

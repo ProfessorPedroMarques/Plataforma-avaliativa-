@@ -165,3 +165,57 @@ export async function resetPassword(userId, password) {
   await prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: true } });
   return { id: userId, mustChangePassword: true };
 }
+
+// ---- Visão geral do administrador (somente leitura, dados reais) ----
+const RECEIVED = ["SUBMITTED", "UNDER_REVIEW", "EVALUATED", "RETURNED", "RESUBMITTED"];
+export async function overview() {
+  const course = await getCourse();
+  const [students, teachers, groups, presentationCriteria, activities] = await Promise.all([
+    prisma.student.findMany({ select: { id: true, groupMemberships: { where: { group: { classId: course.classId } }, select: { id: true } } } }),
+    prisma.teacher.count(),
+    prisma.studentGroup.findMany({ where: { classId: course.classId }, select: { id: true, _count: { select: { members: true } } } }),
+    prisma.presentationCriterion.count({ where: { active: true, archived: false } }),
+    prisma.activity.findMany({ orderBy: { createdAt: "desc" }, include: { evaluators: { select: { documents: true, presentation: true } } } })
+  ]);
+  const studentIds = students.map(s => s.id);
+  const rows = [];
+  for (const a of activities) {
+    const [sent, evaluation, presDone] = await Promise.all([
+      prisma.submission.count({ where: { activityId: a.id, status: { in: RECEIVED } } }),
+      prisma.evaluation.findUnique({ where: { activityId: a.id }, select: { id: true } }),
+      prisma.presentationEvaluation.findMany({ where: { activityId: a.id, complete: true }, distinct: ["studentId"], select: { studentId: true } })
+    ]);
+    const results = evaluation ? await prisma.evaluationResult.findMany({
+      where: { evaluationId: evaluation.id },
+      select: { status: true, finalizedAt: true, score: true, groupId: true, studentId: true,
+        _count: { select: { criterionScores: { where: { criterion: { scope: { not: "INDIVIDUAL" } } } } } } }
+    }) : [];
+    const published = results.filter(r => r.status === "PUBLISHED" || r.status === "REVISED");
+    const docsEvaluated = new Set(results.filter(r => r._count.criterionScores > 0).map(r => r.groupId || r.studentId)).size;
+    rows.push({
+      id: a.id, title: a.title, status: a.status, mode: a.mode, dueDate: a.dueDate,
+      units: a.mode === "GROUP" ? groups.length : studentIds.length,
+      documentsSent: sent, documentsEvaluated: docsEvaluated,
+      students: studentIds.length, presentationsEvaluated: presDone.length,
+      ready: results.filter(r => r.status === "DRAFT" && r.finalizedAt).length,
+      published: published.length,
+      average: published.length ? Number((published.reduce((s, r) => s + Number(r.score || 0), 0) / published.length).toFixed(2)) : null,
+      documentTeachers: a.evaluators.filter(e => e.documents).length,
+      presentationTeachers: a.evaluators.filter(e => e.presentation).length
+    });
+  }
+  const live = rows.filter(r => r.status === "OPEN" || r.status === "CLOSED");
+  return {
+    students: students.length,
+    studentsWithoutGroup: students.filter(s => s.groupMemberships.length === 0).length,
+    teachers, groups: groups.length,
+    activities: { total: activities.length, open: activities.filter(a => a.status === "OPEN").length },
+    presentationCriteria,
+    evaluations: {
+      published: rows.reduce((s, r) => s + r.published, 0),
+      ready: rows.reduce((s, r) => s + r.ready, 0),
+      pending: live.reduce((s, r) => s + Math.max(0, r.students - r.published - r.ready), 0)
+    },
+    byActivity: rows
+  };
+}
