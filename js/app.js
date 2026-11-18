@@ -12,7 +12,7 @@ const fmtDate = (d) => d ? new Date(d).toLocaleString("pt-BR", { dateStyle: "sho
 // Argumento seguro para onclick="fn(...)" (aspas e apóstrofos em nomes não quebram o HTML/JS).
 const js = (s) => esc(JSON.stringify(String(s ?? "")));
 const fmtDay = (d) => d ? new Date(d).toLocaleDateString("pt-BR") : "—";
-const prazo = (d) => d ? `${prazo(d)}` : "sem prazo";
+const prazo = (d) => d ? "prazo " + fmtDay(d) : "sem prazo";
 const num = (n) => (n === null || n === undefined) ? "—" : Number(n).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 const pct = (a, b) => b ? Math.round((a / b) * 100) : 0;
 const initials = (name) => String(name || "?").trim().split(/\s+/).slice(0, 2).map(p => p[0]).join("").toUpperCase();
