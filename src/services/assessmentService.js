@@ -298,3 +298,95 @@ export async function openPresentationEvaluation(teacher, activityId, studentId)
     finalScore: calc.finalScore, maxScore: calc.maxScore
   };
 }
+
+// ---------------- VISÃO DO PROFESSOR POR GRUPOS (documentos) ----------------
+// Atividades em que o professor avalia os documentos, com os critérios cadastrados,
+// os grupos, os integrantes de cada grupo e a situação do envio — mesmo sem envios.
+export async function documentsOverview(teacher) {
+  const ids = await allowedActivityIds(teacher, "documents");
+  const activities = await prisma.activity.findMany({
+    where: { id: { in: ids.length ? ids : ["__none__"] } },
+    orderBy: { createdAt: "desc" }
+  });
+  const out = [];
+  for (const activity of activities) {
+    const criteria = activity.rubricVersionId ? await getActiveCriteria(activity.rubricVersionId) : [];
+    const documentCriteria = criteria.filter(c => c.scope !== "INDIVIDUAL").map(c => critDto(c));
+    const evaluation = await prisma.evaluation.findUnique({ where: { activityId: activity.id } });
+    const results = evaluation
+      ? await prisma.evaluationResult.findMany({ where: { evaluationId: evaluation.id }, include: { criterionScores: true } })
+      : [];
+    const resultByStudent = new Map(results.map(r => [r.studentId, r]));
+    const submissions = await prisma.submission.findMany({
+      where: { activityId: activity.id },
+      include: { versions: { select: { _count: { select: { files: true } } } } }
+    });
+    const subDto = (s) => s ? { id: s.id, title: s.title, status: s.status, submittedAt: s.submittedAt, files: s.versions.reduce((n, v) => n + v._count.files, 0) } : null;
+    const scoreOf = (studentId) => {
+      const r = resultByStudent.get(studentId);
+      const docIds = new Set(documentCriteria.map(c => c.id));
+      const evaluated = !!r && r.criterionScores.some(cs => docIds.has(cs.criterionId));
+      return { evaluated, groupScore: calcFor(criteria, r?.criterionScores).groupScore, published: r?.status === "PUBLISHED" || r?.status === "REVISED" };
+    };
+
+    const enrollments = await prisma.enrollment.findMany({
+      where: { classId: activity.classId, status: "ACTIVE" },
+      include: { student: { select: { id: true, user: { select: { name: true } } } } },
+      orderBy: { student: { user: { name: "asc" } } }
+    });
+    let entries = [], ungrouped = [];
+    if (activity.mode === "GROUP") {
+      const groups = await prisma.studentGroup.findMany({
+        where: { classId: activity.classId }, orderBy: { name: "asc" },
+        include: { members: { include: { student: { select: { id: true, user: { select: { name: true } } } } } } }
+      });
+      const grouped = new Set(groups.flatMap(g => g.members.map(m => m.studentId)));
+      ungrouped = enrollments.filter(e => !grouped.has(e.student.id)).map(e => e.student.user.name);
+      entries = groups.map(g => {
+        const members = g.members.map(m => ({ id: m.student.id, name: m.student.user.name })).sort((a, b) => a.name.localeCompare(b.name));
+        const sc = members.length ? scoreOf(members[0].id) : { evaluated: false, groupScore: 0, published: false };
+        return { kind: "GROUP", groupId: g.id, name: g.name, members, submission: subDto(submissions.find(s => s.groupId === g.id)), ...sc };
+      });
+    } else {
+      entries = enrollments.map(e => ({
+        kind: "STUDENT", studentId: e.student.id, name: e.student.user.name, members: [{ id: e.student.id, name: e.student.user.name }],
+        submission: subDto(submissions.find(s => s.studentId === e.student.id)), ...scoreOf(e.student.id)
+      }));
+    }
+    out.push({
+      activity: { id: activity.id, title: activity.title, mode: activity.mode, status: activity.status, dueDate: activity.dueDate },
+      documentCriteria,
+      documentMax: documentCriteria.reduce((s, c) => s + c.maxPoints * c.weight, 0),
+      entries, ungrouped
+    });
+  }
+  return out;
+}
+
+// Abre a avaliação dos documentos de um GRUPO (ou aluno) — mesmo que não tenha enviado pelo sistema
+// (ex.: entregou impresso). Nesse caso cria um registro de entrega "sem arquivos" para guardar a nota;
+// só abrir não bloqueia o aluno — o envio é travado quando o professor SALVA as notas.
+export async function openDocumentsFor(teacher, activityId, { groupId, studentId }) {
+  const activity = await assertActivityAllowed(teacher, activityId, "documents");
+  let submission;
+  if (activity.mode === "GROUP") {
+    const group = groupId ? await prisma.studentGroup.findUnique({ where: { id: groupId }, include: { _count: { select: { members: true } } } }) : null;
+    if (!group) throw new HttpError(404, "Grupo não encontrado.");
+    if (group._count.members === 0) throw new HttpError(409, "Este grupo não tem integrantes.");
+    submission = await prisma.submission.findFirst({ where: { activityId, groupId } });
+    if (!submission) {
+      submission = await prisma.submission.create({ data: {
+        activityId, groupId, title: `Documentos — ${group.name}`, status: "NOT_STARTED",
+        history: { create: { status: "NOT_STARTED", note: "Avaliação aberta pelo professor antes do envio pelo sistema.", changedById: teacher.userId } } } });
+    }
+  } else {
+    if (!studentId) throw new HttpError(400, "Informe o aluno.");
+    submission = await prisma.submission.findFirst({ where: { activityId, studentId } });
+    if (!submission) {
+      submission = await prisma.submission.create({ data: {
+        activityId, studentId, title: "Documentos", status: "NOT_STARTED",
+        history: { create: { status: "NOT_STARTED", note: "Avaliação aberta pelo professor antes do envio pelo sistema.", changedById: teacher.userId } } } });
+    }
+  }
+  return openDocumentEvaluation(teacher, submission.id);
+}

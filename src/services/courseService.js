@@ -79,9 +79,35 @@ export async function enrollInCourse(studentId) {
   });
 }
 
-// Executado na inicialização: garante a estrutura e matricula todos os alunos.
+// Unifica dados antigos na turma do curso (grupos, atividades e avaliações criados
+// em outras turmas antes da mudança para turma única). Sem isso, um aluno pode ficar
+// "sem grupo" para uma atividade porque o grupo e a atividade estão em turmas diferentes.
+async function consolidate(course) {
+  const other = { NOT: { classId: course.classId } };
+  const [groups, activities, evaluations] = await prisma.$transaction([
+    prisma.studentGroup.updateMany({ where: other, data: { classId: course.classId } }),
+    prisma.activity.updateMany({ where: other, data: { classId: course.classId, subjectId: course.subjectId } }),
+    prisma.evaluation.updateMany({ where: other, data: { classId: course.classId } })
+  ]);
+  // Matrículas ativas do ano do curso em outra turma passam para a turma do curso.
+  await prisma.enrollment.updateMany({
+    where: { schoolYearId: course.schoolYearId, ...other },
+    data: { classId: course.classId, status: "ACTIVE" }
+  });
+  // Um aluno não pode ficar em dois grupos: mantém o grupo mais recente.
+  const members = await prisma.groupMember.findMany({ orderBy: { joinedAt: "desc" } });
+  const seen = new Set();
+  for (const m of members) {
+    if (seen.has(m.studentId)) await prisma.groupMember.delete({ where: { id: m.id } });
+    else seen.add(m.studentId);
+  }
+  return groups.count + activities.count + evaluations.count;
+}
+
+// Executado na inicialização: garante a estrutura, unifica os dados e matricula todos os alunos.
 export async function syncCourse() {
   const course = await getCourse();
+  await consolidate(course);
   const students = await prisma.student.findMany({
     where: { NOT: { enrollments: { some: { classId: course.classId, status: "ACTIVE" } } } },
     select: { id: true }

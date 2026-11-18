@@ -76,6 +76,24 @@ function normalizeCriteria(list, scope) {
   });
 }
 
+const key = t => String(t).trim().toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const partName = scope => scope === "INDIVIDUAL" ? "da apresentação" : "dos documentos";
+
+// Critérios não se repetem: os da apresentação precisam ser diferentes dos dos documentos.
+function assertDistinct(list) {
+  const seen = new Map();
+  for (const c of list) {
+    const k = key(c.title);
+    if (seen.has(k)) {
+      const other = seen.get(k);
+      throw new HttpError(409, other.scope === c.scope
+        ? `O critério "${c.title}" está repetido nos critérios ${partName(c.scope)}.`
+        : `O critério "${c.title}" já existe nos critérios ${partName(other.scope)}. Os critérios da apresentação devem ser diferentes dos critérios dos documentos.`);
+    }
+    seen.set(k, c);
+  }
+}
+
 // Grava os papéis (documentos/apresentação) de cada professor na atividade.
 async function writeEvaluators(tx, activityId, documentIds, presentationIds) {
   const all = [...new Set([...documentIds, ...presentationIds])];
@@ -110,6 +128,7 @@ export async function createActivity(adminId, input) {
 
   const docs = normalizeCriteria(documentCriteria, SCOPE.DOCUMENT);
   const pres = normalizeCriteria(presentationCriteria, SCOPE.PRESENTATION);
+  assertDistinct([...docs, ...pres]);
   if (!data.rubricVersionId && docs.length === 0) throw new HttpError(400, "Cadastre ao menos um critério de avaliação dos documentos.");
   if (data.rubricVersionId) await assertPublishedVersion(data.rubricVersionId);
 
@@ -207,6 +226,8 @@ export async function addCriterion(adminId, activityId, part, body) {
   if (!SCOPE[part]) throw new HttpError(400, "Parte inválida (use DOCUMENT ou PRESENTATION).");
   const [c] = normalizeCriteria([body], SCOPE[part]);
   const { version } = await ensureOwnVersion(activityId, adminId);
+  const existing = await prisma.criterion.findMany({ where: { rubricVersionId: version, active: true }, select: { title: true, scope: true } });
+  assertDistinct([...existing, c]);
   const last = await prisma.criterion.aggregate({ where: { rubricVersionId: version }, _max: { position: true } });
   await prisma.criterion.create({ data: { ...c, rubricVersionId: version, position: (last._max.position || 0) + 1 } });
   return getActivity(activityId);

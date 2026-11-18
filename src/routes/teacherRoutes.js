@@ -44,6 +44,8 @@ router.put("/submissions/:id/document-evaluation", asyncHandler(ev.saveDocumentS
 router.get("/activities/:activityId/presentation", asyncHandler(ev.listPresentation));
 router.post("/presentation/open", asyncHandler(ev.openPresentation));
 router.get("/activities/:activityId/presentation-sheet", asyncHandler(ev.presentationSheet));
+router.get("/documents-overview", asyncHandler(ev.documentsOverview));
+router.post("/activities/:activityId/documents/open", asyncHandler(ev.openDocumentsFor));
 router.put("/activities/:activityId/presentation/:studentId", asyncHandler(ev.savePresentationScores));
 
 export default router;

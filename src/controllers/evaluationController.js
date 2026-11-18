@@ -141,3 +141,16 @@ export async function savePresentationScores(req, res) {
   await recordAudit({ actorUserId: req.user.id, action: "SAVE_PRESENTATION_SCORES", entity: "Student", entityId: req.params.studentId, details: { activityId: req.params.activityId } });
   return ok(res, row, "Notas da apresentação salvas.");
 }
+
+// Visão por grupos: atividades (documentos) com critérios, grupos e integrantes.
+export async function documentsOverview(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  return ok(res, await assessment.documentsOverview(teacher));
+}
+
+// Abre a avaliação de documentos de um grupo/aluno (com ou sem envio).
+export async function openDocumentsFor(req, res) {
+  const teacher = await teacherService.getTeacherByUser(req.user.id);
+  const ctx = await assessment.openDocumentsFor(teacher, req.params.activityId, { groupId: req.body.groupId, studentId: req.body.studentId });
+  return ok(res, ctx, "Avaliação dos documentos carregada.");
+}
