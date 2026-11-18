@@ -1,6 +1,6 @@
 
 import prisma from "../config/database.js";
-import { calculateResult } from "../utils/rubricCalculation.js";
+import { breakdown } from "./gradeService.js";
 import { HttpError } from "../utils/http.js";
 
 // Resolve o registro Student a partir do userId autenticado.
@@ -190,18 +190,12 @@ export async function createSubmission(studentId, { activityId, title, descripti
 const PUBLISHED_STATES = ["PUBLISHED", "REVISED"];
 
 // Calcula a divisão da nota (grupo/documentos × apresentação) pela fonte única de cálculo.
-async function breakdownFor(result) {
-  const criteria = await prisma.criterion.findMany({
-    where: { rubricVersionId: result.evaluation.rubricVersionId, active: true },
+// Critérios dos DOCUMENTOS da atividade (nota do grupo).
+async function documentCriteriaOf(result) {
+  return prisma.criterion.findMany({
+    where: { rubricVersionId: result.evaluation.rubricVersionId, active: true, scope: { not: "INDIVIDUAL" } },
     orderBy: { position: "asc" }
   });
-  const scores = {};
-  for (const cs of result.criterionScores) scores[cs.criterionId] = Number(cs.score);
-  const calc = calculateResult({
-    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints, scope: c.scope })),
-    scores
-  });
-  return { criteria, calc };
 }
 
 // Lista apenas resultados PUBLICADOS do próprio aluno, com a composição da nota.
@@ -212,21 +206,18 @@ export async function listPublishedGrades(studentId) {
     include: {
       evaluation: { select: { title: true, rubricVersionId: true, activity: { select: { id: true, title: true } } } },
       submission: { select: { id: true, title: true } },
-      group: { select: { id: true, name: true } },
-      criterionScores: true
+      group: { select: { id: true, name: true } }
     }
   });
   const out = [];
   for (const r of results) {
-    const { calc } = await breakdownFor(r);
+    const b = await breakdown(prisma, r);
     out.push({
       resultId: r.id,
       activity: r.evaluation.activity ? { id: r.evaluation.activity.id, title: r.evaluation.activity.title } : null,
       projectTitle: r.submission?.title || null,
       group: r.group ? { id: r.group.id, name: r.group.name } : null,
-      groupScore: calc.groupScore, groupMax: calc.groupMax,
-      presentationScore: calc.individualScore, presentationMax: calc.individualMax,
-      finalScore: calc.finalScore, maxScore: calc.maxScore,
+      ...b,
       status: r.status,
       publishedAt: r.publishedAt
     });
@@ -234,12 +225,13 @@ export async function listPublishedGrades(studentId) {
   return out;
 }
 
-// Detalhe de uma nota PUBLICADA do próprio aluno (critérios do ADMIN + pontuação do professor).
+// Detalhe de uma nota PUBLICADA do próprio aluno:
+//  📄 critérios dos documentos (nota do grupo) + 🎤 critérios da apresentação (avaliação individual da banca).
 export async function getPublishedGradeDetail(studentId, resultId) {
   const result = await prisma.evaluationResult.findUnique({
     where: { id: resultId },
     include: {
-      evaluation: { select: { title: true, rubricVersionId: true, activity: { select: { id: true, title: true } } } },
+      evaluation: { select: { title: true, rubricVersionId: true, activityId: true, activity: { select: { id: true, title: true } } } },
       submission: { select: { id: true, title: true } },
       group: { select: { id: true, name: true } },
       criterionScores: true,
@@ -252,33 +244,45 @@ export async function getPublishedGradeDetail(studentId, resultId) {
     throw new HttpError(404, "Nota não encontrada ou ainda não publicada.");
   }
 
-  const { criteria, calc } = await breakdownFor(result);
+  const b = await breakdown(prisma, result);
+  const docCriteria = await documentCriteriaOf(result);
   const scoreByCriterion = new Map(result.criterionScores.map(cs => [cs.criterionId, cs]));
-  const mapCrit = c => {
+  const documentCriteria = docCriteria.map(c => {
     const cs = scoreByCriterion.get(c.id);
-    return {
-      title: c.title, description: c.description,
-      maxPoints: Number(c.maxPoints), weight: Number(c.weight),
-      score: cs ? Number(cs.score) : null, comment: cs?.comment || null
-    };
-  };
+    return { title: c.title, description: c.description, maxPoints: Number(c.maxPoints), weight: Number(c.weight), score: cs ? Number(cs.score) : null, comment: cs?.comment || null };
+  });
+
+  // Apresentação: média por critério das avaliações completas da banca + observações de cada professor.
+  const evals = result.evaluation.activityId ? await prisma.presentationEvaluation.findMany({
+    where: { activityId: result.evaluation.activityId, studentId },
+    include: { scores: { include: { criterion: true } }, teacher: { select: { user: { select: { name: true } } } } },
+    orderBy: { createdAt: "asc" }
+  }) : [];
+  const base = evals.some(e => e.complete) ? evals.filter(e => e.complete) : evals;
+  const perCrit = new Map();
+  for (const e of base) for (const s of e.scores) {
+    if (!perCrit.has(s.criterionId)) perCrit.set(s.criterionId, { c: s.criterion, total: 0, n: 0 });
+    const x = perCrit.get(s.criterionId); x.total += Number(s.score); x.n++;
+  }
+  const presentationCriteria = [...perCrit.values()].sort((x, y) => x.c.position - y.c.position).map(x => ({
+    title: x.c.title, description: x.c.description, maxPoints: Number(x.c.maxPoints), weight: Number(x.c.weight),
+    score: Number((x.total / x.n).toFixed(2)), comment: null
+  }));
+  const presentationNotes = base.filter(e => e.notes).map(e => ({ teacher: e.teacher.user.name, notes: e.notes }));
 
   return {
     resultId: result.id,
     activity: result.evaluation.activity,
     projectTitle: result.submission?.title || null,
     group: result.group ? { id: result.group.id, name: result.group.name } : null,
-    groupScore: calc.groupScore, groupMax: calc.groupMax,
-    presentationScore: calc.individualScore, presentationMax: calc.individualMax,
-    finalScore: calc.finalScore, maxScore: calc.maxScore,
+    ...b,
     status: result.status,
     publishedAt: result.publishedAt,
     evaluatedAt: result.finalizedAt,
     documentFeedback: result.feedbacks.find(f => f.type === "GENERAL")?.content || null,
     generalFeedback: result.feedbacks.find(f => f.type === "FINAL")?.content || null,
-    documentCriteria: criteria.filter(c => c.scope !== "INDIVIDUAL").map(mapCrit),
-    presentationCriteria: criteria.filter(c => c.scope === "INDIVIDUAL").map(mapCrit),
-    criteria: criteria.map(mapCrit)
+    documentCriteria, presentationCriteria, presentationNotes,
+    evaluators: base.length
   };
 }
 

@@ -14,7 +14,7 @@ Sistema web full-stack desenvolvido para a E.E. Coronel Ary Gomes para gerenciar
 
 ### Cálculo da nota
 - **Nota do grupo** = soma das notas dos critérios de **documento** (vale para todos os integrantes).
-- **Nota da apresentação** = soma das notas dos critérios de **apresentação** (individual).
+- **Nota da apresentação** (individual) = soma de (nota × peso) dos critérios de **apresentação**, que têm cadastro próprio. Com mais de um professor na banca, vale a média das avaliações completas.
 - **Nota final do aluno** = nota do grupo + nota da apresentação.
 
 A regra fica em um único lugar: `src/utils/rubricCalculation.js`.
@@ -44,10 +44,12 @@ Todos os alunos pertencem à mesma turma e à mesma matéria: **Desenvolvimento 
 1. **Admin › Professores e Alunos:** cadastre os professores e os alunos (o aluno pode já entrar em um grupo). Na lista de alunos, o seletor ao lado de cada nome muda o grupo dele.
 2. **Admin › Grupos:** crie os grupos marcando os alunos de cada um. Cada aluno participa de um grupo só.
 3. **Admin › 📄 Atividades — Documentos:** cadastre o que os grupos vão enviar (ex.: Documento do TCC), o prazo, os **critérios de avaliação do documento** e os **professores que corrigem os documentos** — tudo na mesma tela.
-4. **Admin › 🎤 Avaliação da Apresentação:** para cada atividade, cadastre os **critérios da apresentação** e marque os **professores da banca**. O cartão mostra "pronta para avaliar" quando estiver completo.
+4. **Admin › 🎤 Avaliação da Apresentação:** seção **Critérios de Avaliação da Apresentação** — cadastro próprio, independente dos critérios dos documentos: nome, orientação ao avaliador, pontuação máxima, peso, ativo/inativo e ordem. Os critérios ativos aparecem automaticamente para a banca. Logo abaixo, marque os **professores da banca** de cada atividade.
 5. **Aluno › Enviar Documentos:** escolhe os arquivos e clica em *Enviar documentos ao professor* (um clique: anexa e confirma).
 6. **Professor › Documentos Enviados:** abre, baixa, dá as notas e comenta. Documentos anexados mas não confirmados pelo aluno também aparecem, marcados com aviso.
-7. **Professor (banca) › Avaliação da Apresentação:** planilha por grupo — digita as notas de cada aluno, clica em *Salvar notas do grupo* e depois em *Publicar notas prontas*. Não há etapa de "concluir": a nota fica pronta sozinha quando documentos e apresentação têm nota.
+7. **Professor (banca) › Avaliação da Apresentação:** escolhe o projeto → vê o grupo e os integrantes → clica em **Avaliar** em cada aluno, dá a nota de cada critério, escreve observações e salva. Cada aluno tem a sua nota; cada professor da banca tem a sua avaliação (a nota da apresentação é a média da banca). Depois, *Publicar notas prontas*.
 8. **Aluno › Minhas Notas:** confere nota do grupo, da apresentação, nota final e comentários.
 
-Critérios podem ser incluídos e excluídos até o primeiro lançamento de nota; depois ficam travados para preservar o histórico.
+Critérios dos documentos podem ser incluídos e excluídos até o primeiro lançamento de nota. Critérios da apresentação já usados não mudam de pontuação nem de peso; ao serem excluídos saem das telas, mas as notas já dadas continuam valendo. Notas publicadas ficam congeladas; alterá-las exige justificativa (registrada no histórico).
+
+**Cálculo:** nota do grupo = soma das notas dos critérios dos documentos · nota individual da apresentação = soma de (nota × peso) dos critérios da apresentação (média da banca) · **nota final = grupo + apresentação**.

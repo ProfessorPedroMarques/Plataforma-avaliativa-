@@ -1,5 +1,6 @@
 
 import prisma from "../config/database.js";
+import { refreshResult } from "./gradeService.js";
 import { HttpError } from "../utils/http.js";
 import {
   assertActivityAllowed, getOrCreateEvaluation, getActiveCriteria
@@ -16,17 +17,11 @@ export function deriveState(result) {
   return "NOT_STARTED";
 }
 
-// Recalcula a nota de um resultado a partir das pontuações salvas (critérios do grupo + individuais).
-export async function recompute(tx, resultId, allCriteria, totalPoints) {
-  const scores = await tx.criterionScore.findMany({ where: { resultId } });
-  const map = {};
-  for (const cs of scores) map[cs.criterionId] = Number(cs.score);
-  const calc = calculateResult({
-    criteria: allCriteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints, scope: c.scope })),
-    scores: map, totalPoints
-  });
-  await tx.evaluationResult.update({ where: { id: resultId }, data: { score: calc.finalScore, maxScore: calc.maxScore } });
-  return calc.finalScore;
+// Recalcula a nota de um resultado: nota do grupo (documentos) + nota da apresentação.
+// Delegado ao gradeService (fonte única da composição da nota final).
+export async function recompute(tx, resultId) {
+  const r = await refreshResult(tx, resultId);
+  return r?.score !== undefined && r?.score !== null ? Number(r.score) : null;
 }
 
 // Lista os grupos de uma atividade (em modo equipe).

@@ -2,6 +2,7 @@
 import prisma from "../config/database.js";
 import { HttpError } from "../utils/http.js";
 import { allowedActivityIds } from "./teacherService.js";
+import { refreshResult } from "./gradeService.js";
 import {
   calculateResult, validateCriterionScore, validateRequiredCriteria
 } from "../utils/rubricCalculation.js";
@@ -205,16 +206,14 @@ export async function saveScores(teacher, resultId, { scores, generalFeedback, f
     throw new HttpError(409, "Resultado já publicado. Use o fluxo de revisão para alterar.");
   }
 
-  const criteria = await getActiveCriteria(result.evaluation.rubricVersionId);
+  // Revisão de nota publicada dos DOCUMENTOS (a apresentação tem fluxo próprio no presentationService).
+  const criteria = (await getActiveCriteria(result.evaluation.rubricVersionId)).filter(c => c.scope !== "INDIVIDUAL");
   const criteriaById = new Map(criteria.map(c => [c.id, c]));
-  const rubricVersion = await prisma.rubricVersion.findUnique({
-    where: { id: result.evaluation.rubricVersionId }, select: { totalPoints: true }
-  });
 
   const scoreMap = {};
   for (const item of (scores || [])) {
     const criterion = criteriaById.get(item.criterionId);
-    if (!criterion) throw new HttpError(400, `Critério inválido: ${item.criterionId}.`);
+    if (!criterion) throw new HttpError(400, "Critério inválido: só critérios dos documentos podem ser revisados aqui.");
     if (item.score !== null && item.score !== undefined && item.score !== "") {
       const check = validateCriterionScore(item.score, criterion.maxPoints);
       if (!check.valid) throw new HttpError(400, `${criterion.title}: ${check.message}`);
@@ -333,11 +332,9 @@ export async function reviseResult(teacher, resultId, { scores, generalFeedback,
     throw new HttpError(400, "A revisão exige uma justificativa.");
   }
 
-  const criteria = await getActiveCriteria(result.evaluation.rubricVersionId);
+  // Revisão de nota publicada dos DOCUMENTOS (a apresentação tem fluxo próprio no presentationService).
+  const criteria = (await getActiveCriteria(result.evaluation.rubricVersionId)).filter(c => c.scope !== "INDIVIDUAL");
   const criteriaById = new Map(criteria.map(c => [c.id, c]));
-  const rubricVersion = await prisma.rubricVersion.findUnique({
-    where: { id: result.evaluation.rubricVersionId }, select: { totalPoints: true }
-  });
 
   // Monta o mapa de notas final (mescla as existentes com as alteradas).
   const existing = await prisma.criterionScore.findMany({ where: { resultId } });
@@ -345,17 +342,12 @@ export async function reviseResult(teacher, resultId, { scores, generalFeedback,
   for (const cs of existing) scoreMap[cs.criterionId] = Number(cs.score);
   for (const item of (scores || [])) {
     const criterion = criteriaById.get(item.criterionId);
-    if (!criterion) throw new HttpError(400, `Critério inválido: ${item.criterionId}.`);
+    if (!criterion) throw new HttpError(400, "Critério inválido: só critérios dos documentos podem ser revisados aqui.");
     if (item.score === null || item.score === undefined || item.score === "") { delete scoreMap[item.criterionId]; continue; }
     const check = validateCriterionScore(item.score, criterion.maxPoints);
     if (!check.valid) throw new HttpError(400, `${criterion.title}: ${check.message}`);
     scoreMap[item.criterionId] = Number(item.score);
   }
-
-  const calc = calculateResult({
-    criteria: criteria.map(c => ({ id: c.id, weight: c.weight, maxPoints: c.maxPoints, scope: c.scope })),
-    scores: scoreMap, totalPoints: rubricVersion.totalPoints
-  });
 
   await prisma.$transaction(async (tx) => {
     for (const item of (scores || [])) {
@@ -373,17 +365,15 @@ export async function reviseResult(teacher, resultId, { scores, generalFeedback,
       await tx.feedback.deleteMany({ where: { resultId, type: "FINAL" } });
       if (generalFeedback) await tx.feedback.create({ data: { resultId, authorId: teacher.userId, type: "FINAL", content: generalFeedback } });
     }
-    // Registra a revisão (histórico auditável).
+    // Recalcula grupo + apresentação e registra a revisão (histórico auditável).
+    const fresh = await refreshResult(tx, resultId, { force: true });
     await tx.gradeRevision.create({
       data: {
         resultId, authorId: teacher.userId,
-        previousScore: result.score, newScore: calc.finalScore, justification: justification.trim()
+        previousScore: result.score, newScore: fresh.score, justification: justification.trim()
       }
     });
-    await tx.evaluationResult.update({
-      where: { id: resultId },
-      data: { score: calc.finalScore, maxScore: calc.maxScore, status: "REVISED" }
-    });
+    await tx.evaluationResult.update({ where: { id: resultId }, data: { status: "REVISED" } });
   });
 
   return getResultDetail(resultId);

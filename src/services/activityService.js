@@ -1,6 +1,7 @@
 import prisma from "../config/database.js";
 import { HttpError } from "../utils/http.js";
 import { getCourse } from "./courseService.js";
+import { activePresentationCriteria } from "./gradeService.js";
 
 // =====================================================================
 // ATIVIDADES (ADMIN)
@@ -51,7 +52,8 @@ async function shape(activity) {
   }));
   const sum = list => list.reduce((s, c) => s + c.maxPoints * c.weight, 0);
   const documentCriteria = criteria.filter(c => c.scope !== "INDIVIDUAL");
-  const presentationCriteria = criteria.filter(c => c.scope === "INDIVIDUAL");
+  // Critérios da apresentação: cadastro próprio e independente (Admin › Critérios de Avaliação da Apresentação).
+  const presentationCriteria = (await activePresentationCriteria()).map(c => ({ id: c.id, title: c.title, description: c.description, maxPoints: Number(c.maxPoints), weight: Number(c.weight) }));
   return {
     ...rest,
     rubricVersion: rubricVersion ? { id: rubricVersion.id, versionNumber: rubricVersion.versionNumber, immutable: rubricVersion.immutable, rubric: rubricVersion.rubric } : null,
@@ -127,8 +129,11 @@ export async function createActivity(adminId, input) {
   if (docIds.length === 0) throw new HttpError(400, "Marque ao menos um professor para avaliar os documentos.");
 
   const docs = normalizeCriteria(documentCriteria, SCOPE.DOCUMENT);
-  const pres = normalizeCriteria(presentationCriteria, SCOPE.PRESENTATION);
-  assertDistinct([...docs, ...pres]);
+  if (presentationCriteria !== undefined && presentationCriteria.length) {
+    throw new HttpError(400, "Os critérios da apresentação são cadastrados em Admin › Critérios de Avaliação da Apresentação.");
+  }
+  const pres = [];
+  assertDistinct(docs);
   if (!data.rubricVersionId && docs.length === 0) throw new HttpError(400, "Cadastre ao menos um critério de avaliação dos documentos.");
   if (data.rubricVersionId) await assertPublishedVersion(data.rubricVersionId);
 
@@ -223,10 +228,11 @@ async function ensureOwnVersion(activityId, adminId) {
 
 // Adiciona um critério a uma das partes da atividade. part: "DOCUMENT" | "PRESENTATION".
 export async function addCriterion(adminId, activityId, part, body) {
-  if (!SCOPE[part]) throw new HttpError(400, "Parte inválida (use DOCUMENT ou PRESENTATION).");
+  if (part === "PRESENTATION") throw new HttpError(400, "Os critérios da apresentação são cadastrados em Admin › Critérios de Avaliação da Apresentação.");
+  if (part !== "DOCUMENT") throw new HttpError(400, "Parte inválida.");
   const [c] = normalizeCriteria([body], SCOPE[part]);
   const { version } = await ensureOwnVersion(activityId, adminId);
-  const existing = await prisma.criterion.findMany({ where: { rubricVersionId: version, active: true }, select: { title: true, scope: true } });
+  const existing = await prisma.criterion.findMany({ where: { rubricVersionId: version, active: true, scope: { not: "INDIVIDUAL" } }, select: { title: true, scope: true } });
   assertDistinct([...existing, c]);
   const last = await prisma.criterion.aggregate({ where: { rubricVersionId: version }, _max: { position: true } });
   await prisma.criterion.create({ data: { ...c, rubricVersionId: version, position: (last._max.position || 0) + 1 } });

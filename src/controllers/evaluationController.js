@@ -112,36 +112,6 @@ export async function saveDocumentScores(req, res) {
   return ok(res, ctx, "Notas dos documentos salvas (nota do grupo).");
 }
 
-export async function listPresentation(req, res) {
-  const teacher = await teacherService.getTeacherByUser(req.user.id);
-  return ok(res, await assessment.listPresentationStudents(teacher, req.params.activityId));
-}
-
-export async function openPresentation(req, res) {
-  const teacher = await teacherService.getTeacherByUser(req.user.id);
-  const ctx = await assessment.openPresentationEvaluation(
-    teacher, requireString(req.body.activityId, "activityId"), requireString(req.body.studentId, "studentId")
-  );
-  return created(res, ctx, "Avaliação da apresentação carregada.");
-}
-
-// Planilha da apresentação (critérios + alunos por grupo, com notas já lançadas).
-export async function presentationSheet(req, res) {
-  const teacher = await teacherService.getTeacherByUser(req.user.id);
-  return ok(res, await assessment.presentationSheet(teacher, req.params.activityId));
-}
-
-// Salva as notas da apresentação de um aluno (conclusão automática quando completo).
-export async function savePresentationScores(req, res) {
-  const teacher = await teacherService.getTeacherByUser(req.user.id);
-  if (!Array.isArray(req.body.scores)) throw new HttpError(400, "'scores' deve ser lista.");
-  const row = await assessment.savePresentationScores(teacher, req.params.activityId, req.params.studentId, {
-    scores: req.body.scores, feedback: req.body.feedback
-  });
-  await recordAudit({ actorUserId: req.user.id, action: "SAVE_PRESENTATION_SCORES", entity: "Student", entityId: req.params.studentId, details: { activityId: req.params.activityId } });
-  return ok(res, row, "Notas da apresentação salvas.");
-}
-
 // Visão por grupos: atividades (documentos) com critérios, grupos e integrantes.
 export async function documentsOverview(req, res) {
   const teacher = await teacherService.getTeacherByUser(req.user.id);

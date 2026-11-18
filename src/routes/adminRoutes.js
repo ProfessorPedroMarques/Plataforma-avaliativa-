@@ -4,6 +4,7 @@ import { authenticateToken } from "../middlewares/authMiddleware.js";
 import { authorizeRole } from "../middlewares/authorizeRole.js";
 import { asyncHandler } from "../utils/http.js";
 import * as c from "../controllers/adminController.js";
+import * as pr from "../controllers/presentationController.js";
 
 const router = Router();
 
@@ -26,5 +27,12 @@ router.patch("/groups/:id", asyncHandler(c.renameGroup));
 router.delete("/groups/:id", asyncHandler(c.deleteGroup));
 router.post("/groups/:id/members", asyncHandler(c.addMember));
 router.delete("/groups/:id/members/:studentId", asyncHandler(c.removeMember));
+
+// Critérios de Avaliação da Apresentação (independentes dos critérios de documento)
+router.get("/presentation-criteria", asyncHandler(pr.listCriteria));
+router.post("/presentation-criteria", asyncHandler(pr.createCriterion));
+router.put("/presentation-criteria/order", asyncHandler(pr.reorderCriteria));
+router.patch("/presentation-criteria/:id", asyncHandler(pr.updateCriterion));
+router.delete("/presentation-criteria/:id", asyncHandler(pr.deleteCriterion));
 
 export default router;
