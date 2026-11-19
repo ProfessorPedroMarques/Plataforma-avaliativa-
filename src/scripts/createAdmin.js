@@ -23,6 +23,15 @@ async function createAdmin() {
   }
 
   const normalizedEmail = email.toLowerCase().trim();
+  // Por padrão só CRIA o administrador se ele ainda não existir: assim este script pode
+  // rodar em toda atualização do site sem desfazer a senha trocada pelo admin.
+  // Para redefinir a senha com a do .env/variáveis de ambiente: npm run admin:create -- --reset
+  const reset = process.argv.includes("--reset");
+  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  if (existing && !reset) {
+    console.log(`Administrador ${normalizedEmail} já existe; nada foi alterado (use --reset para redefinir a senha).`);
+    return;
+  }
 
   const passwordHash = await bcrypt.hash(password, 12);
 
@@ -50,7 +59,7 @@ async function createAdmin() {
   console.log("--------------------------------");
   console.log(`Nome: ${admin.name}`);
   console.log(`E-mail: ${admin.email}`);
-  console.log("Senha: atualizada com hash.");
+  console.log(existing ? "Senha: redefinida." : "Senha: definida.");
   console.log("--------------------------------");
 }
 

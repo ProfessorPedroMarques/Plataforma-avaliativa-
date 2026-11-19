@@ -1,9 +1,9 @@
 
-import fs from "fs";
 import * as studentService from "../services/studentService.js";
 import * as submissionService from "../services/submissionService.js";
 import { recordAudit } from "../services/auditService.js";
-import { storedPath } from "../utils/fileStorage.js";
+import { sendStoredFile } from "../utils/fileStorage.js";
+import prisma from "../config/database.js";
 import { ok, created, requireString, optionalString, HttpError } from "../utils/http.js";
 
 // --- Atividades disponíveis ---
@@ -62,7 +62,7 @@ export async function getGrade(req, res) {
 export async function uploadFiles(req, res) {
   const filesMeta = (req.files || []).map(f => ({
     originalName: f.originalname, storedName: f.filename,
-    mimeType: f.mimetype, sizeBytes: f.size
+    mimeType: f.mimetype, sizeBytes: f.size, buffer: f.buffer
   }));
 
   try {
@@ -71,7 +71,6 @@ export async function uploadFiles(req, res) {
     const activity = await studentService.assertActivityForStudent(student.id, submission.activityId);
 
     // Conta arquivos já existentes na versão atual (aberta) para respeitar maxFiles.
-    const prisma = (await import("../config/database.js")).default;
     const lastVersion = await prisma.submissionVersion.findFirst({
       where: { submissionId: submission.id }, orderBy: { versionNumber: "desc" },
       include: { _count: { select: { files: true } } }
@@ -111,9 +110,5 @@ export async function resubmit(req, res) {
 export async function downloadFile(req, res) {
   const student = await studentService.getStudentByUser(req.user.id);
   const file = await submissionService.getFileForOwner(student.id, req.params.fileId);
-  const path = storedPath(file.storedName);
-  if (!fs.existsSync(path)) throw new HttpError(404, "Arquivo físico não encontrado.");
-  res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.originalName)}"`);
-  fs.createReadStream(path).pipe(res);
+  if (!(await sendStoredFile(prisma, res, file))) throw new HttpError(404, "Arquivo não encontrado no servidor.");
 }

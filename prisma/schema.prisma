@@ -484,9 +484,22 @@ model SubmissionFile {
   createdAt DateTime @default(now())
 
   version SubmissionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  content SubmissionFileContent?
 
   @@index([versionId])
   @@map("submission_files")
+}
+
+// Conteúdo binário do arquivo enviado, guardado no próprio banco (hospedagens gratuitas
+// apagam o disco do servidor a cada reinício). Fica numa tabela separada para que as
+// listagens de arquivos não carreguem os bytes; só o download lê este registro.
+model SubmissionFileContent {
+  fileId String @id
+  data   Bytes
+
+  file SubmissionFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("submission_file_contents")
 }
 
 model SubmissionStatusHistory {
