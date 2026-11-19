@@ -1,7 +1,7 @@
 
 import prisma from "../config/database.js";
 import { HttpError } from "../utils/http.js";
-import { getExtension, removeFile } from "../utils/fileStorage.js";
+import { getExtension, removeFile, buildStoredName } from "../utils/fileStorage.js";
 
 // Estados em que a entrega ainda está "aberta" para receber arquivos.
 const OPEN_STATES = ["NOT_STARTED", "IN_PROGRESS", "RETURNED", "RESUBMITTED"];
@@ -60,8 +60,8 @@ async function getOrCreateDraftVersion(tx, submission) {
   });
 }
 
-// Persiste arquivos já gravados em disco (metadados do multer) numa versão.
-// filesMeta: [{ originalName, storedName, mimeType, sizeBytes }]
+// Persiste os arquivos recebidos numa versão (conteúdo no banco ou já gravado em disco).
+// filesMeta: [{ originalName, storedName?, mimeType, sizeBytes, buffer? }]
 export async function attachFiles(submission, filesMeta) {
   if (!OPEN_STATES.includes(submission.status)) {
     throw new HttpError(409, "Esta entrega não está aberta para novos arquivos.");
@@ -73,15 +73,19 @@ export async function attachFiles(submission, filesMeta) {
     const currentCount = await tx.submissionFile.count({ where: { versionId: version.id } });
     void currentCount; // contagem já validada no controller
 
-    await tx.submissionFile.createMany({
-      data: filesMeta.map(f => ({
-        versionId: version.id,
-        originalName: f.originalName,
-        storedName: f.storedName,
-        mimeType: f.mimeType,
-        sizeBytes: f.sizeBytes
-      }))
-    });
+    for (const f of filesMeta) {
+      await tx.submissionFile.create({
+        data: {
+          versionId: version.id,
+          originalName: f.originalName,
+          storedName: f.storedName || buildStoredName(f.originalName),
+          mimeType: f.mimeType,
+          sizeBytes: f.sizeBytes,
+          // Armazenamento no banco: o conteúdo vai para submission_file_contents.
+          ...(f.buffer ? { content: { create: { data: f.buffer } } } : {})
+        }
+      });
+    }
 
     await tx.submission.update({
       where: { id: submission.id },
@@ -168,7 +172,8 @@ export async function getFileForOwner(studentId, fileId) {
   return file;
 }
 
-// Remove do disco arquivos órfãos (usado em rollback de upload).
+// Remove do disco arquivos órfãos (usado em rollback de upload). No modo "banco" não há
+// nada em disco: a transação desfaz tudo sozinha.
 export function cleanupStoredFiles(filesMeta) {
-  for (const f of filesMeta) removeFile(f.storedName);
+  for (const f of filesMeta) if (f.storedName && !f.buffer) removeFile(f.storedName);
 }

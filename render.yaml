@@ -1,0 +1,34 @@
+# Configuração de publicação no Render (plano gratuito).
+# Um único serviço entrega as telas e a API no mesmo endereço.
+# O banco PostgreSQL fica no Neon (gratuito e sem prazo de expiração):
+# cole a "connection string" do Neon em DATABASE_URL quando o Render pedir.
+services:
+  - type: web
+    name: avaliacao-pei-ary-gomes
+    runtime: node
+    plan: free
+    region: ohio         # mesma região do banco no Neon (AWS US East 2 - Ohio)
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build:render
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false          # connection string do Neon (com sslmode=require)
+      - key: JWT_SECRET
+        generateValue: true  # gerada automaticamente pelo Render
+      - key: JWT_EXPIRES_IN
+        value: 8h            # sessão de um turno; depois disso pede login de novo
+      - key: BOOTSTRAP_ADMIN_NAME
+        sync: false
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false          # mínimo de 12 caracteres
+      - key: FILE_STORAGE
+        value: database      # arquivos dos alunos no banco (o disco do plano gratuito é apagado)
+      - key: MAX_UPLOAD_MB
+        value: "20"          # limite global por arquivo; cada atividade pode ter limite menor

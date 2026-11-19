@@ -1,10 +1,11 @@
 
 import multer from "multer";
-import { UPLOAD_DIR, GLOBAL_MAX_MB, buildStoredName, ensureUploadDir } from "../utils/fileStorage.js";
+import { UPLOAD_DIR, GLOBAL_MAX_MB, FILE_STORAGE, buildStoredName, ensureUploadDir } from "../utils/fileStorage.js";
 
-ensureUploadDir();
+if (FILE_STORAGE === "disk") ensureUploadDir();
 
-const storage = multer.diskStorage({
+// Banco: o arquivo fica em memória só até ser gravado no PostgreSQL. Disco: pasta UPLOAD_DIR.
+const storage = FILE_STORAGE === "database" ? multer.memoryStorage() : multer.diskStorage({
   destination(req, file, cb) {
     cb(null, UPLOAD_DIR);
   },

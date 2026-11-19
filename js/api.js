@@ -1,5 +1,13 @@
 // ====== Cliente de API + autenticação ======
-const API_URL = localStorage.getItem("API_URL") || "http://localhost:3000";
+// Endereço da API:
+//  • aberto pelo próprio servidor (produção/Render ou http://localhost:3000): mesmo endereço do site;
+//  • aberto pelo Live Server do VS Code (porta 5500) ou direto do arquivo: backend local na porta 3000;
+//  • localStorage "API_URL" sobrepõe tudo (útil para testes).
+const API_URL = (() => {
+  try { const custom = localStorage.getItem("API_URL"); if (custom) return custom; } catch {}
+  if (location.protocol === "file:" || location.port === "5500") return "http://localhost:3000";
+  return location.origin;
+})();
 
 const Auth = {
   get token() { return localStorage.getItem("token"); },

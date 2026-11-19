@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import path from "path";
+import { fileURLToPath } from "url";
 
 import prisma from "./config/database.js";
 import { syncCourse } from "./services/courseService.js";
@@ -25,24 +27,52 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 
 const allowedOrigins = (
   process.env.FRONTEND_URL || "http://127.0.0.1:5500"
-).split(",").map(origin => origin.trim());
+).split(",").map(origin => origin.trim()).filter(Boolean);
+// No Render, o endereço público do serviço vem nesta variável (site e API no mesmo endereço).
+if (process.env.RENDER_EXTERNAL_URL) allowedOrigins.push(process.env.RENDER_EXTERNAL_URL.replace(/\/$/, ""));
 
-app.use(helmet());
+// Atrás de um proxy (Render e afins), usa o IP real de cada usuário. Sem isso, todos
+// os acessos pareceriam vir do mesmo IP e o limite de tentativas de login bloquearia a escola inteira.
+if (process.env.TRUST_PROXY || process.env.RENDER) app.set("trust proxy", Number(process.env.TRUST_PROXY || 1));
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true);
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "script-src": ["'self'"],
+      // As telas usam onclick="..." nos botões.
+      "script-src-attr": ["'unsafe-inline'"],
+      "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      "font-src": ["'self'", "https://fonts.gstatic.com", "data:"],
+      "img-src": ["'self'", "data:", "blob:"],
+      "connect-src": ["'self'", ...allowedOrigins.filter(o => /^https?:\/\//.test(o))],
+      // Navegador e servidor no mesmo endereço; não força https quando roda localmente.
+      "upgrade-insecure-requests": process.env.RENDER ? [] : null
     }
-
-    return callback(new Error("Origem não autorizada pelo CORS."));
   }
 }));
 
+// CORS: libera o próprio endereço do site (mesma origem) e os endereços de FRONTEND_URL.
+app.use(cors((req, callback) => {
+  const origin = req.header("Origin");
+  const self = `${req.protocol}://${req.get("host")}`;
+  if (!origin || origin === self || allowedOrigins.includes(origin)) return callback(null, { origin: true });
+  return callback(new Error("Origem não autorizada pelo CORS."));
+}));
+
+// Telas da plataforma (HTML/CSS/JS/imagens). Só estas pastas são públicas;
+// código do servidor, .env e uploads nunca são servidos.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const staticOpts = { maxAge: "1h", index: false };
+app.use("/css", express.static(path.join(ROOT, "css"), staticOpts));
+app.use("/js", express.static(path.join(ROOT, "js"), staticOpts));
+app.use("/img", express.static(path.join(ROOT, "img"), { ...staticOpts, maxAge: "7d" }));
+app.get(["/", "/index.html"], (req, res) => res.sendFile(path.join(ROOT, "index.html")));
+
 app.use(express.json({ limit: "10kb" }));
 
-// Rota inicial
-app.get("/", (req, res) => {
+// Informações da API
+app.get("/api", (req, res) => {
   res.json({
     message: "API da Plataforma de Avaliação",
     version: "1.0.0",

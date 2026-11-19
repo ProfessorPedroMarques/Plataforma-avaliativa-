@@ -1,8 +1,8 @@
 
-import fs from "fs";
 import * as teacherService from "../services/teacherService.js";
 import { recordAudit } from "../services/auditService.js";
-import { storedPath } from "../utils/fileStorage.js";
+import { sendStoredFile } from "../utils/fileStorage.js";
+import prisma from "../config/database.js";
 import { ok, created, requireString, HttpError } from "../utils/http.js";
 
 export async function dashboard(req, res) {
@@ -24,11 +24,7 @@ export async function getSubmission(req, res) {
 export async function downloadFile(req, res) {
   const teacher = await teacherService.getTeacherByUser(req.user.id);
   const file = await teacherService.getFileForTeacher(teacher, req.params.fileId);
-  const path = storedPath(file.storedName);
-  if (!fs.existsSync(path)) throw new HttpError(404, "Arquivo físico não encontrado.");
-  res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.originalName)}"`);
-  fs.createReadStream(path).pipe(res);
+  if (!(await sendStoredFile(prisma, res, file))) throw new HttpError(404, "Arquivo não encontrado no servidor.");
 }
 
 export async function addNote(req, res) {
